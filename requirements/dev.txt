@@ -1,0 +1,25 @@
+-r base.txt
+
+# テスト関連
+pytest~=8.3.5
+pytest-asyncio~=1.0.0
+pytest-cov~=6.1.1
+pytest-mock~=3.14.1
+httpx~=0.28.1
+pydantic-factories~=1.17.3
+
+# Lint/Format関連
+ruff~=0.11.12
+mypy~=1.16.0
+
+# セキュリティチェック
+bandit~=1.8.3
+pip-audit~=2.9.0
+
+# プリコミットフック
+pre-commit~=4.2.0
+
+# デバッグ・開発ツール
+ipdb~=0.13.13
+rich~=14.0.0
+debugpy~=1.8.14
