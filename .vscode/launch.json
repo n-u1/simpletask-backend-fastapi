@@ -1,0 +1,72 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+        "name": "FastAPI Debug",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/venv/bin/uvicorn",
+        "args": [
+            "app.main:app",
+            "--host", "0.0.0.0",
+            "--port", "8000",
+            "--reload"
+        ],
+        "env": {
+            "PYTHONPATH": "${workspaceFolder}",
+            "ENVIRONMENT": "development"
+        },
+        "console": "integratedTerminal",
+        "justMyCode": false,
+        "envFile": "${workspaceFolder}/.env"
+        },
+        {
+        "name": "FastAPI Test Debug",
+        "type": "debugpy",
+        "request": "launch",
+        "module": "pytest",
+        "args": ["tests/", "-v", "--tb=short"],
+        "env": {
+            "PYTHONPATH": "${workspaceFolder}",
+            "ENVIRONMENT": "test"
+        },
+        "console": "integratedTerminal",
+        "justMyCode": false
+        },
+        {
+        "name": "FastAPI Module Debug",
+        "type": "debugpy",
+        "request": "launch",
+        "module": "uvicorn",
+        "args": [
+            "app.main:app",
+            "--host", "0.0.0.0",
+            "--port", "8000",
+            "--reload"
+        ],
+        "env": {
+            "PYTHONPATH": "${workspaceFolder}",
+            "ENVIRONMENT": "development"
+        },
+        "console": "integratedTerminal",
+        "justMyCode": false,
+        "envFile": "${workspaceFolder}/.env"
+        },
+        {
+        "name": "Docker: FastAPI Remote Debug",
+        "type": "debugpy",
+        "request": "attach",
+        "connect": {
+            "host": "localhost",
+            "port": 5678
+        },
+        "pathMappings": [
+            {
+            "localRoot": "${workspaceFolder}",
+            "remoteRoot": "/app"
+            }
+        ],
+        "justMyCode": false
+        }
+    ]
+}
