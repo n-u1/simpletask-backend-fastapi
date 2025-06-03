@@ -74,6 +74,12 @@ disallow_untyped_defs = false
 module = "alembic.*"
 ignore_errors = true
 
+# Redis非同期ライブラリの型定義問題(pre-commitエラー)を回避
+# 問題: mypyがredis.asyncio.Redis.aclose()とConnectionPool.aclose()を認識できない
+[[tool.mypy.overrides]]
+module = "app.core.redis"
+disable_error_code = ["attr-defined"]
+
 [tool.pytest.ini_options]
 minversion = "6.0"
 addopts = "-ra -q --strict-markers"
