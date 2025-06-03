@@ -132,12 +132,12 @@ class RedisManager:
     async def close(self) -> None:
         try:
             if self._client is not None:
-                await self._client.aclose()  # type: ignore[attr-defined]
+                await self._client.aclose()
                 logger.info("Redisクライアントを閉じました")
                 self._client = None
 
             if self._pool is not None:
-                await self._pool.aclose()  # type: ignore[attr-defined]
+                await self._pool.aclose()
                 logger.info("Redis接続プールを閉じました")
                 self._pool = None
 
