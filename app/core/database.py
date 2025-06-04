@@ -206,9 +206,8 @@ async def create_tables() -> None:
         try:
             from app.models.base import Base
         except ImportError as err:
-            # モデルがまだ作成されていない場合のフォールバック
-            logger.warning("app.models.baseが見つかりません。先にモデルを作成してください。")
-            raise RuntimeError("ベースモデルが見つかりません。app/models/base.pyを作成してください。") from err
+            logger.warning("app.models.baseが見つかりません。")
+            raise RuntimeError("ベースモデルが見つかりません。") from err
 
         engine = database_manager.create_engine()
         async with engine.begin() as conn:
@@ -234,9 +233,8 @@ async def drop_tables() -> None:
         try:
             from app.models.base import Base
         except ImportError as err:
-            # モデルがまだ作成されていない場合のフォールバック
-            logger.warning("app.models.baseが見つかりません。先にモデルを作成してください。")
-            raise RuntimeError("ベースモデルが見つかりません。app/models/base.pyを作成してください。") from err
+            logger.warning("app.models.baseが見つかりません。")
+            raise RuntimeError("ベースモデルが見つかりません。") from err
 
         engine = database_manager.create_engine()
         async with engine.begin() as conn:
