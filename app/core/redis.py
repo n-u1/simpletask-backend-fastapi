@@ -11,6 +11,7 @@ from redis.asyncio import ConnectionPool, Redis
 from redis.exceptions import ConnectionError, RedisError, TimeoutError
 
 from app.core.config import settings
+from app.core.constants import DatabaseConstants, SecurityConstants
 
 logger = logging.getLogger(__name__)
 
@@ -62,34 +63,38 @@ class RedisManager:
         if not settings.REDIS_HOST or not settings.REDIS_HOST.strip():
             raise ValueError("REDIS_HOSTが設定されていません")
 
-        if not (settings.REDIS_PORT_MIN <= settings.REDIS_PORT <= settings.REDIS_PORT_MAX):
+        if not (DatabaseConstants.REDIS_PORT_MIN <= settings.REDIS_PORT <= DatabaseConstants.REDIS_PORT_MAX):
             raise ValueError(
-                f"REDIS_PORTは{settings.REDIS_PORT_MIN}-{settings.REDIS_PORT_MAX}の範囲で設定してください: "
-                f"{settings.REDIS_PORT}"
+                f"REDIS_PORTは{DatabaseConstants.REDIS_PORT_MIN}-{DatabaseConstants.REDIS_PORT_MAX}の"
+                f"範囲で設定してください: {settings.REDIS_PORT}"
             )
 
-        if not (settings.REDIS_DB_MIN <= settings.REDIS_DB <= settings.REDIS_DB_MAX):
+        if not (DatabaseConstants.REDIS_DB_MIN <= settings.REDIS_DB <= DatabaseConstants.REDIS_DB_MAX):
             raise ValueError(
-                f"REDIS_DBは{settings.REDIS_DB_MIN}-{settings.REDIS_DB_MAX}の"
+                f"REDIS_DBは{DatabaseConstants.REDIS_DB_MIN}-{DatabaseConstants.REDIS_DB_MAX}の"
                 f"範囲で設定してください: {settings.REDIS_DB}"
             )
 
         if not settings.REDIS_PASSWORD:
             raise ValueError("REDIS_PASSWORDが設定されていません")
 
-        if not (settings.REDIS_POOL_SIZE_MIN <= settings.REDIS_POOL_SIZE <= settings.REDIS_POOL_SIZE_MAX):
+        pool_size_valid = (
+            DatabaseConstants.REDIS_POOL_SIZE_MIN <= settings.REDIS_POOL_SIZE <= DatabaseConstants.REDIS_POOL_SIZE_MAX
+        )
+        if not pool_size_valid:
             raise ValueError(
-                f"REDIS_POOL_SIZEは{settings.REDIS_POOL_SIZE_MIN}-{settings.REDIS_POOL_SIZE_MAX}の"
-                f"範囲で設定してください: {settings.REDIS_POOL_SIZE}"
+                f"REDIS_POOL_SIZEは{DatabaseConstants.REDIS_POOL_SIZE_MIN}-"
+                f"{DatabaseConstants.REDIS_POOL_SIZE_MAX}の範囲で設定してください: {settings.REDIS_POOL_SIZE}"
             )
 
         if settings.is_production:
             if settings.REDIS_HOST in ["localhost", "127.0.0.1"]:
                 logger.warning("本番環境でlocalhostのRedisを使用しています")
 
-            if len(settings.REDIS_PASSWORD) < settings.MIN_REDIS_PASSWORD_LENGTH_PRODUCTION:
+            if len(settings.REDIS_PASSWORD) < SecurityConstants.MIN_REDIS_PASSWORD_LENGTH_PRODUCTION:
                 raise ValueError(
-                    f"本番環境ではREDIS_PASSWORDは{settings.MIN_REDIS_PASSWORD_LENGTH_PRODUCTION}文字以上にしてください"
+                    f"本番環境ではREDIS_PASSWORDは{SecurityConstants.MIN_REDIS_PASSWORD_LENGTH_PRODUCTION}"
+                    f"文字以上にしてください"
                 )
 
         logger.debug("Redis設定の検証が完了しました")
