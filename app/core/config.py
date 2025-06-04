@@ -11,6 +11,8 @@ from urllib.parse import quote_plus
 from pydantic import Field, computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.constants import DatabaseConstants, SecurityConstants
+
 
 class Settings(BaseSettings):
     """アプリケーション設定
@@ -88,50 +90,8 @@ class Settings(BaseSettings):
     # =============================================================================
     # レート制限
     # =============================================================================
-    RATE_LIMIT_PER_MINUTE: int = Field(default=60)
-    LOGIN_RATE_LIMIT_PER_MINUTE: int = Field(default=5)
-
-    # =============================================================================
-    # セキュリティ閾値
-    # =============================================================================
-    MIN_JWT_SECRET_LENGTH = 32
-    MIN_DB_PASSWORD_LENGTH_PRODUCTION = 12
-    MIN_REDIS_PASSWORD_LENGTH_PRODUCTION = 12
-
-    # =============================================================================
-    # Argon2セキュリティ閾値
-    # =============================================================================
-    ARGON2_TIME_COST_MIN = 1
-    ARGON2_TIME_COST_MAX = 10
-    ARGON2_TIME_COST_PRODUCTION_MIN = 3
-
-    ARGON2_MEMORY_COST_MIN = 1024  # 1KB
-    ARGON2_MEMORY_COST_MAX = 1048576  # 1GB
-    ARGON2_MEMORY_COST_PRODUCTION_MIN = 65536  # 本番環境推奨最小値（64KB）
-
-    ARGON2_PARALLELISM_MIN = 1
-    ARGON2_PARALLELISM_MAX = 16
-
-    # =============================================================================
-    # データベース設定閾値
-    # =============================================================================
-    DB_POOL_SIZE_MIN = 1
-    DB_POOL_SIZE_MAX = 50
-    DB_MAX_OVERFLOW_MIN = 0
-    DB_MAX_OVERFLOW_MAX = 100
-
-    # =============================================================================
-    # Redis設定閾値
-    # =============================================================================
-    REDIS_PORT_MIN = 1
-    REDIS_PORT_MAX = 65535
-    REDIS_DB_MIN = 0
-    REDIS_DB_MAX = 15
-    REDIS_POOL_SIZE_MIN = 1
-    REDIS_POOL_SIZE_MAX = 100
-    REDIS_HEALTH_CHECK_INTERVAL = 30  # 秒
-    REDIS_SOCKET_TIMEOUT_DEV = 5
-    REDIS_SOCKET_TIMEOUT_PROD = 10
+    RATE_LIMIT_PER_MINUTE: int = Field(default=SecurityConstants.DEFAULT_RATE_LIMIT_PER_MINUTE)
+    LOGIN_RATE_LIMIT_PER_MINUTE: int = Field(default=SecurityConstants.DEFAULT_LOGIN_RATE_LIMIT_PER_MINUTE)
 
     # =============================================================================
     # ログレベル設定
@@ -145,16 +105,17 @@ class Settings(BaseSettings):
     @field_validator("JWT_SECRET_KEY", mode="before")
     @classmethod
     def validate_jwt_secret_key(cls, v: str) -> str:
-        if not v or len(v) < cls.MIN_JWT_SECRET_LENGTH:
+        if not v or len(v) < SecurityConstants.MIN_JWT_SECRET_LENGTH:
             # 本番環境チェック
             env = os.getenv("ENVIRONMENT", "development").lower()
             if env == "production":
                 raise ValueError(
-                    f"JWT_SECRET_KEY must be at least {cls.MIN_JWT_SECRET_LENGTH} characters in production. "
-                    'Generate one using: python -c "import secrets; print(secrets.token_urlsafe(32))"'
+                    f"JWT_SECRET_KEY must be at least {SecurityConstants.MIN_JWT_SECRET_LENGTH} "
+                    "characters in production. Generate one using: "
+                    'python -c "import secrets; print(secrets.token_urlsafe(32))"'
                 )
             # 開発環境ではキーを自動生成
-            return secrets.token_urlsafe(cls.MIN_JWT_SECRET_LENGTH)
+            return secrets.token_urlsafe(SecurityConstants.MIN_JWT_SECRET_LENGTH)
         return v
 
     @field_validator("JWT_ALGORITHM")
@@ -168,42 +129,51 @@ class Settings(BaseSettings):
     @field_validator("ARGON2_TIME_COST")
     @classmethod
     def validate_argon2_time_cost(cls, v: int) -> int:
-        if not (cls.ARGON2_TIME_COST_MIN <= v <= cls.ARGON2_TIME_COST_MAX):
+        if not (SecurityConstants.ARGON2_TIME_COST_MIN <= v <= SecurityConstants.ARGON2_TIME_COST_MAX):
             raise ValueError(
-                f"ARGON2_TIME_COST must be between {cls.ARGON2_TIME_COST_MIN} and {cls.ARGON2_TIME_COST_MAX}"
+                f"ARGON2_TIME_COST must be between "
+                f"{SecurityConstants.ARGON2_TIME_COST_MIN} and {SecurityConstants.ARGON2_TIME_COST_MAX}"
             )
         return v
 
     @field_validator("ARGON2_MEMORY_COST")
     @classmethod
     def validate_argon2_memory_cost(cls, v: int) -> int:
-        if not (cls.ARGON2_MEMORY_COST_MIN <= v <= cls.ARGON2_MEMORY_COST_MAX):
+        if not (SecurityConstants.ARGON2_MEMORY_COST_MIN <= v <= SecurityConstants.ARGON2_MEMORY_COST_MAX):
             raise ValueError(
-                f"ARGON2_MEMORY_COST must be between {cls.ARGON2_MEMORY_COST_MIN} and {cls.ARGON2_MEMORY_COST_MAX}"
+                f"ARGON2_MEMORY_COST must be between "
+                f"{SecurityConstants.ARGON2_MEMORY_COST_MIN} and {SecurityConstants.ARGON2_MEMORY_COST_MAX}"
             )
         return v
 
     @field_validator("ARGON2_PARALLELISM")
     @classmethod
     def validate_argon2_parallelism(cls, v: int) -> int:
-        if not (cls.ARGON2_PARALLELISM_MIN <= v <= cls.ARGON2_PARALLELISM_MAX):
+        if not (SecurityConstants.ARGON2_PARALLELISM_MIN <= v <= SecurityConstants.ARGON2_PARALLELISM_MAX):
             raise ValueError(
-                f"ARGON2_PARALLELISM must be between {cls.ARGON2_PARALLELISM_MIN} and {cls.ARGON2_PARALLELISM_MAX}"
+                f"ARGON2_PARALLELISM must be between "
+                f"{SecurityConstants.ARGON2_PARALLELISM_MIN} and {SecurityConstants.ARGON2_PARALLELISM_MAX}"
             )
         return v
 
     @field_validator("DB_POOL_SIZE")
     @classmethod
     def validate_db_pool_size(cls, v: int) -> int:
-        if not (cls.DB_POOL_SIZE_MIN <= v <= cls.DB_POOL_SIZE_MAX):
-            raise ValueError(f"DB_POOL_SIZE must be between {cls.DB_POOL_SIZE_MIN} and {cls.DB_POOL_SIZE_MAX}")
+        if not (DatabaseConstants.DB_POOL_SIZE_MIN <= v <= DatabaseConstants.DB_POOL_SIZE_MAX):
+            raise ValueError(
+                f"DB_POOL_SIZE must be between "
+                f"{DatabaseConstants.DB_POOL_SIZE_MIN} and {DatabaseConstants.DB_POOL_SIZE_MAX}"
+            )
         return v
 
     @field_validator("DB_MAX_OVERFLOW")
     @classmethod
     def validate_db_max_overflow(cls, v: int) -> int:
-        if not (cls.DB_MAX_OVERFLOW_MIN <= v <= cls.DB_MAX_OVERFLOW_MAX):
-            raise ValueError(f"DB_MAX_OVERFLOW must be between {cls.DB_MAX_OVERFLOW_MIN} and {cls.DB_MAX_OVERFLOW_MAX}")
+        if not (DatabaseConstants.DB_MAX_OVERFLOW_MIN <= v <= DatabaseConstants.DB_MAX_OVERFLOW_MAX):
+            raise ValueError(
+                f"DB_MAX_OVERFLOW must be between "
+                f"{DatabaseConstants.DB_MAX_OVERFLOW_MIN} and {DatabaseConstants.DB_MAX_OVERFLOW_MAX}"
+            )
         return v
 
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
@@ -234,9 +204,10 @@ class Settings(BaseSettings):
 
         # 本番環境チェック
         env = os.getenv("ENVIRONMENT", "development").lower()
-        if env == "production" and len(v) < cls.MIN_DB_PASSWORD_LENGTH_PRODUCTION:
+        if env == "production" and len(v) < SecurityConstants.MIN_DB_PASSWORD_LENGTH_PRODUCTION:
             raise ValueError(
-                f"Database password must be at least {cls.MIN_DB_PASSWORD_LENGTH_PRODUCTION} characters in production"
+                f"Database password must be at least "
+                f"{SecurityConstants.MIN_DB_PASSWORD_LENGTH_PRODUCTION} characters in production"
             )
 
         return v
@@ -249,9 +220,10 @@ class Settings(BaseSettings):
 
         # 本番環境チェック
         env = os.getenv("ENVIRONMENT", "development").lower()
-        if env == "production" and len(v) < cls.MIN_REDIS_PASSWORD_LENGTH_PRODUCTION:
+        if env == "production" and len(v) < SecurityConstants.MIN_REDIS_PASSWORD_LENGTH_PRODUCTION:
             raise ValueError(
-                f"Redis password must be at least {cls.MIN_REDIS_PASSWORD_LENGTH_PRODUCTION} characters in production"
+                f"Redis password must be at least "
+                f"{SecurityConstants.MIN_REDIS_PASSWORD_LENGTH_PRODUCTION} characters in production"
             )
 
         return v
@@ -368,14 +340,18 @@ class Settings(BaseSettings):
 
         issues = []
 
-        if len(self.JWT_SECRET_KEY) < self.MIN_JWT_SECRET_LENGTH:
-            issues.append(f"JWT_SECRET_KEY must be at least {self.MIN_JWT_SECRET_LENGTH} characters")
+        if len(self.JWT_SECRET_KEY) < SecurityConstants.MIN_JWT_SECRET_LENGTH:
+            issues.append(f"JWT_SECRET_KEY must be at least {SecurityConstants.MIN_JWT_SECRET_LENGTH} characters")
 
-        if len(self.DB_PASSWORD) < self.MIN_DB_PASSWORD_LENGTH_PRODUCTION:
-            issues.append(f"DB_PASSWORD must be at least {self.MIN_DB_PASSWORD_LENGTH_PRODUCTION} characters")
+        if len(self.DB_PASSWORD) < SecurityConstants.MIN_DB_PASSWORD_LENGTH_PRODUCTION:
+            issues.append(
+                f"DB_PASSWORD must be at least {SecurityConstants.MIN_DB_PASSWORD_LENGTH_PRODUCTION} characters"
+            )
 
-        if len(self.REDIS_PASSWORD) < self.MIN_REDIS_PASSWORD_LENGTH_PRODUCTION:
-            issues.append(f"REDIS_PASSWORD must be at least {self.MIN_REDIS_PASSWORD_LENGTH_PRODUCTION} characters")
+        if len(self.REDIS_PASSWORD) < SecurityConstants.MIN_REDIS_PASSWORD_LENGTH_PRODUCTION:
+            issues.append(
+                f"REDIS_PASSWORD must be at least {SecurityConstants.MIN_REDIS_PASSWORD_LENGTH_PRODUCTION} characters"
+            )
 
         if not self.BACKEND_CORS_ORIGINS or "http://localhost" in str(self.BACKEND_CORS_ORIGINS):
             issues.append("CORS origins should not include localhost in production")
@@ -384,11 +360,16 @@ class Settings(BaseSettings):
             issues.append("DEBUG should be False in production")
 
         # Argon2パラメータの本番環境推奨値チェック
-        if self.ARGON2_TIME_COST < 3:
-            issues.append("ARGON2_TIME_COST should be at least 3 in production")
+        if self.ARGON2_TIME_COST < SecurityConstants.ARGON2_TIME_COST_PRODUCTION_MIN:
+            issues.append(
+                f"ARGON2_TIME_COST should be at least {SecurityConstants.ARGON2_TIME_COST_PRODUCTION_MIN} in production"
+            )
 
-        if self.ARGON2_MEMORY_COST < 65536:
-            issues.append("ARGON2_MEMORY_COST should be at least 65536 in production")
+        if self.ARGON2_MEMORY_COST < SecurityConstants.ARGON2_MEMORY_COST_PRODUCTION_MIN:
+            issues.append(
+                f"ARGON2_MEMORY_COST should be at least {SecurityConstants.ARGON2_MEMORY_COST_PRODUCTION_MIN} "
+                "in production"
+            )
 
         if issues:
             raise ValueError(f"Production security issues: {'; '.join(issues)}")

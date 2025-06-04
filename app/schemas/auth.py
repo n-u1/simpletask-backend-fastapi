@@ -1,13 +1,10 @@
-"""認証関連のPydanticスキーマ
-
-ユーザー登録、ログイン、トークンのリクエスト・レスポンススキーマを提供
-"""
-
 import re
 from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+
+from app.core.constants import ErrorMessages, UserConstants, is_weak_password, validate_image_url
 
 
 class UserCreate(BaseModel):
@@ -16,29 +13,38 @@ class UserCreate(BaseModel):
     email: EmailStr = Field(..., description="メールアドレス", examples=["user@example.com"])
 
     password: str = Field(
-        ..., min_length=8, max_length=128, description="パスワード（8文字以上）", examples=["SecurePassword123!"]
+        ...,
+        min_length=UserConstants.PASSWORD_MIN_LENGTH,
+        max_length=UserConstants.PASSWORD_MAX_LENGTH,
+        description="パスワード（8文字以上）",
+        examples=["SecurePassword123!"],
     )
 
-    display_name: str = Field(..., min_length=2, max_length=100, description="表示名", examples=["田中太郎"])
+    display_name: str = Field(
+        ...,
+        min_length=UserConstants.DISPLAY_NAME_MIN_LENGTH,
+        max_length=UserConstants.DISPLAY_NAME_MAX_LENGTH,
+        description="表示名",
+        examples=["山田太郎"],
+    )
 
     @field_validator("password")
     @classmethod
     def validate_password(cls, v: str) -> str:
-        if len(v) < 8:
-            raise ValueError("パスワードは8文字以上である必要があります")
+        if len(v) < UserConstants.PASSWORD_MIN_LENGTH:
+            raise ValueError(ErrorMessages.PASSWORD_TOO_SHORT)
 
-        if len(v) > 128:
-            raise ValueError("パスワードは128文字以内で入力してください")
+        if len(v) > UserConstants.PASSWORD_MAX_LENGTH:
+            raise ValueError(ErrorMessages.PASSWORD_TOO_LONG)
 
         if not re.search(r"[A-Za-z]", v):
-            raise ValueError("パスワードには英字を含めてください")
+            raise ValueError(ErrorMessages.PASSWORD_NO_LETTERS)
 
         if not re.search(r"\d", v):
-            raise ValueError("パスワードには数字を含めてください")
+            raise ValueError(ErrorMessages.PASSWORD_NO_NUMBERS)
 
-        weak_passwords = ["password", "12345678", "qwerty", "admin"]
-        if v.lower() in weak_passwords:
-            raise ValueError("このパスワードは簡単すぎるため使用できません")
+        if is_weak_password(v):
+            raise ValueError(ErrorMessages.PASSWORD_TOO_WEAK)
 
         return v
 
@@ -47,14 +53,14 @@ class UserCreate(BaseModel):
     def validate_display_name(cls, v: str) -> str:
         v = v.strip()
 
-        if len(v) < 2:
-            raise ValueError("表示名は2文字以上で入力してください")
+        if len(v) < UserConstants.DISPLAY_NAME_MIN_LENGTH:
+            raise ValueError(ErrorMessages.DISPLAY_NAME_TOO_SHORT)
 
-        if len(v) > 100:
-            raise ValueError("表示名は100文字以内で入力してください")
+        if len(v) > UserConstants.DISPLAY_NAME_MAX_LENGTH:
+            raise ValueError(ErrorMessages.DISPLAY_NAME_TOO_LONG)
 
-        if not re.match(r"^[a-zA-Z0-9ぁ-んァ-ヶー一-龠\s\-_\.]+$", v):
-            raise ValueError("表示名に使用できない文字が含まれています")
+        if not UserConstants.DISPLAY_NAME_PATTERN.match(v):
+            raise ValueError(ErrorMessages.DISPLAY_NAME_INVALID_CHARS)
 
         return v
 
@@ -64,7 +70,13 @@ class UserLogin(BaseModel):
 
     email: EmailStr = Field(..., description="メールアドレス", examples=["user@example.com"])
 
-    password: str = Field(..., min_length=1, max_length=128, description="パスワード", examples=["SecurePassword123!"])
+    password: str = Field(
+        ...,
+        min_length=1,
+        max_length=UserConstants.PASSWORD_MAX_LENGTH,
+        description="パスワード",
+        examples=["SecurePassword123!"],
+    )
 
 
 class UserResponse(BaseModel):
@@ -114,28 +126,34 @@ class RefreshTokenRequest(BaseModel):
 class PasswordChangeRequest(BaseModel):
     """パスワード変更リクエストスキーマ"""
 
-    current_password: str = Field(..., min_length=1, max_length=128, description="現在のパスワード")
+    current_password: str = Field(
+        ..., min_length=1, max_length=UserConstants.PASSWORD_MAX_LENGTH, description="現在のパスワード"
+    )
 
-    new_password: str = Field(..., min_length=8, max_length=128, description="新しいパスワード")
+    new_password: str = Field(
+        ...,
+        min_length=UserConstants.PASSWORD_MIN_LENGTH,
+        max_length=UserConstants.PASSWORD_MAX_LENGTH,
+        description="新しいパスワード",
+    )
 
     @field_validator("new_password")
     @classmethod
     def validate_new_password(cls, v: str) -> str:
-        if len(v) < 8:
-            raise ValueError("パスワードは8文字以上である必要があります")
+        if len(v) < UserConstants.PASSWORD_MIN_LENGTH:
+            raise ValueError(ErrorMessages.PASSWORD_TOO_SHORT)
 
-        if len(v) > 128:
-            raise ValueError("パスワードは128文字以内で入力してください")
+        if len(v) > UserConstants.PASSWORD_MAX_LENGTH:
+            raise ValueError(ErrorMessages.PASSWORD_TOO_LONG)
 
         if not re.search(r"[A-Za-z]", v):
-            raise ValueError("パスワードには英字を含めてください")
+            raise ValueError(ErrorMessages.PASSWORD_NO_LETTERS)
 
         if not re.search(r"\d", v):
-            raise ValueError("パスワードには数字を含めてください")
+            raise ValueError(ErrorMessages.PASSWORD_NO_NUMBERS)
 
-        weak_passwords = ["password", "12345678", "qwerty", "admin"]
-        if v.lower() in weak_passwords:
-            raise ValueError("このパスワードは簡単すぎるため使用できません")
+        if is_weak_password(v):
+            raise ValueError(ErrorMessages.PASSWORD_TOO_WEAK)
 
         return v
 
@@ -153,26 +171,30 @@ class PasswordResetConfirm(BaseModel):
         ..., description="パスワードリセットトークン", examples=["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."]
     )
 
-    new_password: str = Field(..., min_length=8, max_length=128, description="新しいパスワード")
+    new_password: str = Field(
+        ...,
+        min_length=UserConstants.PASSWORD_MIN_LENGTH,
+        max_length=UserConstants.PASSWORD_MAX_LENGTH,
+        description="新しいパスワード",
+    )
 
     @field_validator("new_password")
     @classmethod
     def validate_new_password(cls, v: str) -> str:
-        if len(v) < 8:
-            raise ValueError("パスワードは8文字以上である必要があります")
+        if len(v) < UserConstants.PASSWORD_MIN_LENGTH:
+            raise ValueError(ErrorMessages.PASSWORD_TOO_SHORT)
 
-        if len(v) > 128:
-            raise ValueError("パスワードは128文字以内で入力してください")
+        if len(v) > UserConstants.PASSWORD_MAX_LENGTH:
+            raise ValueError(ErrorMessages.PASSWORD_TOO_LONG)
 
         if not re.search(r"[A-Za-z]", v):
-            raise ValueError("パスワードには英字を含めてください")
+            raise ValueError(ErrorMessages.PASSWORD_NO_LETTERS)
 
         if not re.search(r"\d", v):
-            raise ValueError("パスワードには数字を含めてください")
+            raise ValueError(ErrorMessages.PASSWORD_NO_NUMBERS)
 
-        weak_passwords = ["password", "12345678", "qwerty", "admin"]
-        if v.lower() in weak_passwords:
-            raise ValueError("このパスワードは簡単すぎるため使用できません")
+        if is_weak_password(v):
+            raise ValueError(ErrorMessages.PASSWORD_TOO_WEAK)
 
         return v
 
@@ -180,9 +202,14 @@ class PasswordResetConfirm(BaseModel):
 class UserUpdate(BaseModel):
     """ユーザー情報更新スキーマ"""
 
-    display_name: str | None = Field(None, min_length=2, max_length=100, description="表示名")
+    display_name: str | None = Field(
+        None,
+        min_length=UserConstants.DISPLAY_NAME_MIN_LENGTH,
+        max_length=UserConstants.DISPLAY_NAME_MAX_LENGTH,
+        description="表示名",
+    )
 
-    avatar_url: str | None = Field(None, max_length=500, description="アバター画像URL")
+    avatar_url: str | None = Field(None, max_length=UserConstants.AVATAR_URL_MAX_LENGTH, description="アバター画像URL")
 
     @field_validator("display_name")
     @classmethod
@@ -192,14 +219,14 @@ class UserUpdate(BaseModel):
 
         v = v.strip()
 
-        if len(v) < 2:
-            raise ValueError("表示名は2文字以上で入力してください")
+        if len(v) < UserConstants.DISPLAY_NAME_MIN_LENGTH:
+            raise ValueError(ErrorMessages.DISPLAY_NAME_TOO_SHORT)
 
-        if len(v) > 100:
-            raise ValueError("表示名は100文字以内で入力してください")
+        if len(v) > UserConstants.DISPLAY_NAME_MAX_LENGTH:
+            raise ValueError(ErrorMessages.DISPLAY_NAME_TOO_LONG)
 
-        if not re.match(r"^[a-zA-Z0-9ぁ-んァ-ヶー一-龠\s\-_\.]+$", v):
-            raise ValueError("表示名に使用できない文字が含まれています")
+        if not UserConstants.DISPLAY_NAME_PATTERN.match(v):
+            raise ValueError(ErrorMessages.DISPLAY_NAME_INVALID_CHARS)
 
         return v
 
@@ -211,13 +238,8 @@ class UserUpdate(BaseModel):
 
         v = v.strip()
 
-        url_pattern = r"^https?://[^\s/$.?#].[^\s]*$"
-        if not re.match(url_pattern, v):
-            raise ValueError("有効なURLを入力してください")
-
-        valid_extensions = [".jpg", ".jpeg", ".png", ".gif", ".webp"]
-        if not any(v.lower().endswith(ext) for ext in valid_extensions):
-            raise ValueError("画像ファイル（jpg, jpeg, png, gif, webp）のURLを入力してください")
+        if not validate_image_url(v):
+            raise ValueError("有効な画像ファイル（jpg, jpeg, png, gif, webp）のURLを入力してください")
 
         return v
 
@@ -236,7 +258,7 @@ class Config:
 
     schema_extra = {
         "examples": {
-            "user_create": {"email": "user@example.com", "password": "SecurePassword123!", "display_name": "田中太郎"},
+            "user_create": {"email": "user@example.com", "password": "SecurePassword123!", "display_name": "山田太郎"},
             "user_login": {"email": "user@example.com", "password": "SecurePassword123!"},
             "password_change": {"current_password": "OldPassword123!", "new_password": "NewSecurePassword456!"},
         }

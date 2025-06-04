@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import Boolean, DateTime, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
+from app.core.constants import ErrorMessages, UserConstants
 from app.models.base import Base
 
 # 循環インポート回避のための型チェック時のみインポート
@@ -25,15 +26,23 @@ class User(Base):
 
     # 基本認証情報
     email: Mapped[str] = mapped_column(
-        String(255), unique=True, nullable=False, index=True, comment="メールアドレス（ログインID）"
+        String(UserConstants.EMAIL_MAX_LENGTH),
+        unique=True,
+        nullable=False,
+        index=True,
+        comment="メールアドレス（ログインID）",
     )
 
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False, comment="Argon2ハッシュ化されたパスワード")
 
     # プロフィール情報
-    display_name: Mapped[str] = mapped_column(String(100), nullable=False, comment="表示名")
+    display_name: Mapped[str] = mapped_column(
+        String(UserConstants.DISPLAY_NAME_MAX_LENGTH), nullable=False, comment="表示名"
+    )
 
-    avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True, comment="アバター画像URL")
+    avatar_url: Mapped[str | None] = mapped_column(
+        String(UserConstants.AVATAR_URL_MAX_LENGTH), nullable=True, comment="アバター画像URL"
+    )
 
     # アカウント状態管理
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, comment="アカウント有効フラグ")
@@ -89,11 +98,14 @@ class User(Base):
 
         display_name = display_name.strip()
 
-        if len(display_name) < 2:
-            raise ValueError("表示名は2文字以上で入力してください")
+        if len(display_name) < UserConstants.DISPLAY_NAME_MIN_LENGTH:
+            raise ValueError(ErrorMessages.DISPLAY_NAME_TOO_SHORT)
 
-        if len(display_name) > 100:
-            raise ValueError("表示名は100文字以内で入力してください")
+        if len(display_name) > UserConstants.DISPLAY_NAME_MAX_LENGTH:
+            raise ValueError(ErrorMessages.DISPLAY_NAME_TOO_LONG)
+
+        if not UserConstants.DISPLAY_NAME_PATTERN.match(display_name):
+            raise ValueError(ErrorMessages.DISPLAY_NAME_INVALID_CHARS)
 
         return display_name
 
