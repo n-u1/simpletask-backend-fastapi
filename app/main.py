@@ -137,7 +137,7 @@ def setup_middleware(app: FastAPI) -> None:
 
 
 def setup_routes(app: FastAPI) -> None:
-    @app.get("/health")
+    @app.get("/health", response_model=None)
     async def health_check() -> dict[str, Any] | JSONResponse:
         try:
             db_health = await db_health_check()

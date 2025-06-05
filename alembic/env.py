@@ -1,6 +1,6 @@
 """Alembic環境設定
 
-FastAPI + SQLAlchemy 2.x + PostgreSQL用のマイグレーション設定（同期パターン）
+FastAPI + SQLAlchemy 2.x + PostgreSQL用のマイグレーション設定（同期版）
 """
 
 import os

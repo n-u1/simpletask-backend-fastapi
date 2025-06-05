@@ -3,6 +3,7 @@
 Pydantic V2 BaseSettingsを使用した設定システムを提供
 """
 
+import json
 import os
 import secrets
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -84,7 +85,7 @@ class Settings(BaseSettings):
     # =============================================================================
     # CORS設定
     # =============================================================================
-    BACKEND_CORS_ORIGINS: list[str] = []
+    BACKEND_CORS_ORIGINS: str | list[str] = ""
     ALLOWED_HOSTS: list[str] = ["localhost", "127.0.0.1"]
 
     # =============================================================================
@@ -176,26 +177,6 @@ class Settings(BaseSettings):
             )
         return v
 
-    @field_validator("BACKEND_CORS_ORIGINS", mode="before")
-    @classmethod
-    def assemble_cors_origins(cls, v: str | list[str] | None) -> list[str]:
-        """CORS originをカンマ区切り文字列またはリストから解析"""
-        if isinstance(v, str) and v:
-            return [origin.strip() for origin in v.split(",") if origin.strip()]
-        elif isinstance(v, list):
-            return v
-        return []
-
-    @field_validator("ALLOWED_HOSTS", mode="before")
-    @classmethod
-    def assemble_allowed_hosts(cls, v: str | list[str] | None) -> list[str]:
-        """許可ホストをカンマ区切り文字列またはリストから解析(未提供の場合はlocalhostをデフォルトとして使用)"""
-        if isinstance(v, str) and v:
-            return [host.strip() for host in v.split(",") if host.strip()]
-        elif isinstance(v, list):
-            return v
-        return cls.ALLOWED_HOSTS
-
     @field_validator("DB_PASSWORD", mode="before")
     @classmethod
     def validate_db_password(cls, v: str) -> str:
@@ -211,6 +192,16 @@ class Settings(BaseSettings):
             )
 
         return v
+
+    @field_validator("ALLOWED_HOSTS", mode="before")
+    @classmethod
+    def assemble_allowed_hosts(cls, v: str | list[str] | None) -> list[str]:
+        """許可ホストをカンマ区切り文字列またはリストから解析(未提供の場合はlocalhostをデフォルトとして使用)"""
+        if isinstance(v, str) and v:
+            return [host.strip() for host in v.split(",") if host.strip()]
+        elif isinstance(v, list):
+            return v
+        return cls.ALLOWED_HOSTS
 
     @field_validator("REDIS_PASSWORD", mode="before")
     @classmethod
@@ -322,8 +313,34 @@ class Settings(BaseSettings):
         }
 
     def get_cors_config(self) -> dict[str, Any]:
+        """CORS設定を取得（文字列・リスト両方に対応）"""
+        origins = []
+        cors_env = self.BACKEND_CORS_ORIGINS
+
+        # 既にリストの場合
+        if isinstance(cors_env, list):
+            origins = [str(item) for item in cors_env]
+        # 文字列の場合
+        elif isinstance(cors_env, str) and cors_env:
+            # JSON配列形式かチェック
+            if cors_env.strip().startswith("[") and cors_env.strip().endswith("]"):
+                try:
+                    origins = json.loads(cors_env)
+                    if not isinstance(origins, list):
+                        origins = []
+                except json.JSONDecodeError:
+                    # JSONエラーの場合はカンマ区切りとして処理
+                    origins = [x.strip() for x in cors_env.split(",") if x.strip()]
+            else:
+                # カンマ区切り形式
+                origins = [x.strip() for x in cors_env.split(",") if x.strip()]
+
+        # デフォルト値（開発環境用）
+        if not origins:
+            origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
+
         return {
-            "allow_origins": self.BACKEND_CORS_ORIGINS,
+            "allow_origins": origins,
             "allow_credentials": True,
             "allow_methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
             "allow_headers": ["*"],
