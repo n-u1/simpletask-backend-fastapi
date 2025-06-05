@@ -18,7 +18,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.api.v1.auth import router as auth_router
+from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.database import close_database, init_database
 from app.core.database import health_check as db_health_check
@@ -181,28 +181,8 @@ def setup_routes(app: FastAPI) -> None:
             "health_url": "/health",
         }
 
-    # 認証APIルーターを追加
-    app.include_router(auth_router, prefix=f"{settings.API_V1_STR}/auth", tags=["認証"])
-
-    # TODO: 他のAPIルーターを追加
-    # from app.api.v1.users import router as users_router
-    # app.include_router(
-    #     users_router,
-    #     prefix=f"{settings.API_V1_STR}/users",
-    #     tags=["ユーザー"]
-    # )
-    # from app.api.v1.tasks import router as tasks_router
-    # app.include_router(
-    #     tasks_router,
-    #     prefix=f"{settings.API_V1_STR}/tasks",
-    #     tags=["タスク"]
-    # )
-    # from app.api.v1.tags import router as tags_router
-    # app.include_router(
-    #     tags_router,
-    #     prefix=f"{settings.API_V1_STR}/tags",
-    #     tags=["タグ"]
-    # )
+    # 統合APIルーターを追加
+    app.include_router(api_router, prefix=settings.API_V1_STR)
 
     logger.info("ルーティングの設定が完了しました")
 

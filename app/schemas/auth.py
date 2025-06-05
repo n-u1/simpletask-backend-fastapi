@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
-from app.core.constants import ErrorMessages, UserConstants, is_weak_password, validate_image_url
+from app.core.constants import ErrorMessages, UserConstants, is_weak_password
 
 
 class UserCreate(BaseModel):
@@ -80,7 +80,7 @@ class UserLogin(BaseModel):
 
 
 class UserResponse(BaseModel):
-    """ユーザー情報レスポンススキーマ"""
+    """ユーザー情報レスポンススキーマ（認証関連で使用）"""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -158,92 +158,6 @@ class PasswordChangeRequest(BaseModel):
         return v
 
 
-class PasswordResetRequest(BaseModel):
-    """パスワードリセット要求スキーマ"""
-
-    email: EmailStr = Field(..., description="登録済みメールアドレス", examples=["user@example.com"])
-
-
-class PasswordResetConfirm(BaseModel):
-    """パスワードリセット確認スキーマ"""
-
-    token: str = Field(
-        ..., description="パスワードリセットトークン", examples=["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."]
-    )
-
-    new_password: str = Field(
-        ...,
-        min_length=UserConstants.PASSWORD_MIN_LENGTH,
-        max_length=UserConstants.PASSWORD_MAX_LENGTH,
-        description="新しいパスワード",
-    )
-
-    @field_validator("new_password")
-    @classmethod
-    def validate_new_password(cls, v: str) -> str:
-        if len(v) < UserConstants.PASSWORD_MIN_LENGTH:
-            raise ValueError(ErrorMessages.PASSWORD_TOO_SHORT)
-
-        if len(v) > UserConstants.PASSWORD_MAX_LENGTH:
-            raise ValueError(ErrorMessages.PASSWORD_TOO_LONG)
-
-        if not re.search(r"[A-Za-z]", v):
-            raise ValueError(ErrorMessages.PASSWORD_NO_LETTERS)
-
-        if not re.search(r"\d", v):
-            raise ValueError(ErrorMessages.PASSWORD_NO_NUMBERS)
-
-        if is_weak_password(v):
-            raise ValueError(ErrorMessages.PASSWORD_TOO_WEAK)
-
-        return v
-
-
-class UserUpdate(BaseModel):
-    """ユーザー情報更新スキーマ"""
-
-    display_name: str | None = Field(
-        None,
-        min_length=UserConstants.DISPLAY_NAME_MIN_LENGTH,
-        max_length=UserConstants.DISPLAY_NAME_MAX_LENGTH,
-        description="表示名",
-    )
-
-    avatar_url: str | None = Field(None, max_length=UserConstants.AVATAR_URL_MAX_LENGTH, description="アバター画像URL")
-
-    @field_validator("display_name")
-    @classmethod
-    def validate_display_name(cls, v: str | None) -> str | None:
-        if v is None:
-            return v
-
-        v = v.strip()
-
-        if len(v) < UserConstants.DISPLAY_NAME_MIN_LENGTH:
-            raise ValueError(ErrorMessages.DISPLAY_NAME_TOO_SHORT)
-
-        if len(v) > UserConstants.DISPLAY_NAME_MAX_LENGTH:
-            raise ValueError(ErrorMessages.DISPLAY_NAME_TOO_LONG)
-
-        if not UserConstants.DISPLAY_NAME_PATTERN.match(v):
-            raise ValueError(ErrorMessages.DISPLAY_NAME_INVALID_CHARS)
-
-        return v
-
-    @field_validator("avatar_url")
-    @classmethod
-    def validate_avatar_url(cls, v: str | None) -> str | None:
-        if v is None or v.strip() == "":
-            return None
-
-        v = v.strip()
-
-        if not validate_image_url(v):
-            raise ValueError("有効な画像ファイル（jpg, jpeg, png, gif, webp）のURLを入力してください")
-
-        return v
-
-
 class AuthResponse(BaseModel):
     """汎用認証レスポンススキーマ"""
 
@@ -253,13 +167,11 @@ class AuthResponse(BaseModel):
 
 
 # スキーマの使用例とドキュメント用の設定
-class Config:
-    """スキーマ設定例"""
+class AuthSchemaExamples:
+    """認証スキーマの使用例"""
 
-    schema_extra = {
-        "examples": {
-            "user_create": {"email": "user@example.com", "password": "SecurePassword123!", "display_name": "山田太郎"},
-            "user_login": {"email": "user@example.com", "password": "SecurePassword123!"},
-            "password_change": {"current_password": "OldPassword123!", "new_password": "NewSecurePassword456!"},
-        }
-    }
+    USER_CREATE_EXAMPLE = {"email": "user@example.com", "password": "SecurePassword123!", "display_name": "山田太郎"}
+
+    USER_LOGIN_EXAMPLE = {"email": "user@example.com", "password": "SecurePassword123!"}
+
+    PASSWORD_CHANGE_EXAMPLE = {"current_password": "OldPassword123!", "new_password": "NewSecurePassword456!"}

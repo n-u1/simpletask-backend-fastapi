@@ -18,8 +18,6 @@ from app.models.user import User
 from app.schemas.auth import (
     AuthResponse,
     PasswordChangeRequest,
-    PasswordResetConfirm,
-    PasswordResetRequest,
     RefreshTokenRequest,
     Token,
     UserCreate,
@@ -219,6 +217,46 @@ async def refresh_token(refresh_data: RefreshTokenRequest, db: AsyncSession = db
         ) from e
 
 
+@router.put("/password", response_model=AuthResponse)
+async def change_password(
+    password_change: PasswordChangeRequest,
+    current_user: User = current_user_dependency,
+    db: AsyncSession = db_dependency,
+) -> Any:
+    """パスワード変更
+
+    現在のパスワードを確認してから新しいパスワードに変更
+    """
+    try:
+        # 現在のパスワード確認
+        if not security_manager.verify_password(password_change.current_password, current_user.password_hash):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="現在のパスワードが正しくありません",
+            )
+
+        # 新しいパスワードのハッシュ化
+        new_password_hash = security_manager.get_password_hash(password_change.new_password)
+
+        # パスワード更新
+        from app.crud.user import user_crud
+
+        await user_crud.update_password(db, user=current_user, password_hash=new_password_hash)
+
+        return AuthResponse(success=True, message="パスワードが正常に変更されました", data=None)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import logging
+
+        logger = logging.getLogger(__name__)
+        logger.error(f"パスワード変更エラー: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="パスワード変更中にエラーが発生しました"
+        ) from e
+
+
 @router.post("/logout", response_model=AuthResponse)
 async def logout(
     request: Request,
@@ -252,97 +290,4 @@ async def get_current_user_info(current_user: User = current_user_dependency) ->
     return UserResponse.model_validate(current_user)
 
 
-@router.post("/change-password", response_model=AuthResponse)
-async def change_password(
-    password_data: PasswordChangeRequest, current_user: User = current_user_dependency, db: AsyncSession = db_dependency
-) -> Any:
-    """パスワード変更"""
-    try:
-        await auth_service.change_password(
-            db,
-            user=current_user,
-            current_password=password_data.current_password,
-            new_password=password_data.new_password,
-        )
-
-        return AuthResponse(success=True, message="パスワードが正常に変更されました", data=None)
-
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-    except Exception as e:
-        import logging
-
-        logger = logging.getLogger(__name__)
-        logger.error(f"パスワード変更エラー: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="パスワード変更中にエラーが発生しました"
-        ) from e
-
-
-@router.post("/password-reset-request", response_model=AuthResponse)
-async def request_password_reset(reset_data: PasswordResetRequest, db: AsyncSession = db_dependency) -> Any:
-    """パスワードリセット要求
-
-    パスワードリセット用のトークンを生成
-    """
-    try:
-        reset_token = await auth_service.generate_password_reset_token(db, email=reset_data.email)
-
-        if reset_token:
-            # TODO: メール送信の実装
-            # await send_password_reset_email(reset_data.email, reset_token)
-            pass
-
-        # セキュリティのため、ユーザーが存在しない場合でも成功を返す
-        return AuthResponse(
-            success=True,
-            message="パスワードリセットメールを送信しました（登録済みの場合）",
-            data={"reset_token": reset_token} if settings.is_development else None,
-        )
-
-    except Exception as e:
-        import logging
-
-        logger = logging.getLogger(__name__)
-        logger.error(f"パスワードリセット要求エラー: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="パスワードリセット要求の処理中にエラーが発生しました",
-        ) from e
-
-
-@router.post("/password-reset-confirm", response_model=AuthResponse)
-async def confirm_password_reset(reset_data: PasswordResetConfirm, db: AsyncSession = db_dependency) -> Any:
-    """パスワードリセット確認
-
-    リセットトークンを使用してパスワードを変更
-    """
-    try:
-        # トークンからメールアドレスは取得できないため、
-        # 実際の実装ではトークンに含まれる情報から処理する
-        success = await auth_service.reset_password(
-            db,
-            email="",  # 実装時はトークンから取得
-            new_password=reset_data.new_password,
-            reset_token=reset_data.token,
-        )
-
-        if not success:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="無効なリセットトークンです")
-
-        return AuthResponse(success=True, message="パスワードが正常にリセットされました", data=None)
-
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-    except Exception as e:
-        import logging
-
-        logger = logging.getLogger(__name__)
-        logger.error(f"パスワードリセット確認エラー: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="パスワードリセット中にエラーが発生しました"
-        ) from e
-
-
-# ルーターのエクスポート確認
 __all__ = ["router"]
