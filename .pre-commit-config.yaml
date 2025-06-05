@@ -1,3 +1,6 @@
+# Alembicマイグレーションファイルを除外
+exclude: ^alembic/versions/.*\.py$
+
 repos:
   # 基本的なファイルチェック
   - repo: https://github.com/pre-commit/pre-commit-hooks
