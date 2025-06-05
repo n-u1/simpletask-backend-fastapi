@@ -34,7 +34,8 @@ repos:
           "pydantic>=2.11.0",
           "types-redis",
           "sqlalchemy[mypy]",
-          "types-PyJWT"
+          "types-PyJWT",
+          "alembic>=1.16.0"
         ]
 
   # セキュリティチェック

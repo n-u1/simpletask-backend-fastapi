@@ -45,13 +45,12 @@ services:
       dockerfile: Dockerfile
       target: development
     container_name: simpletask-backend-api
+    env_file:
+      - .env
     environment:
       - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@simpletask-backend-db:5432/${DB_NAME}
       - REDIS_URL=redis://:${REDIS_PASSWORD}@simpletask-backend-redis:6379/0
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
-      - LOG_LEVEL=${LOG_LEVEL}
       - ENVIRONMENT=development
-      - BACKEND_CORS_ORIGINS=${BACKEND_CORS_ORIGINS}
     ports:
       - "8000:8000"
     volumes:
