@@ -5,7 +5,7 @@ Pydantic V2 BaseSettingsを使用した設定システムを提供
 
 import os
 import secrets
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 from urllib.parse import quote_plus
 
 from pydantic import Field, computed_field, field_validator
@@ -96,7 +96,7 @@ class Settings(BaseSettings):
     # =============================================================================
     # ログレベル設定
     # =============================================================================
-    VALID_LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+    VALID_LOG_LEVELS: ClassVar[list[str]] = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
     # =============================================================================
     # バリデーター（Pydantic V2）
