@@ -7,9 +7,8 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.core.constants import APIConstants, TaskStatus
 from app.crud.base import CRUDBase
@@ -17,26 +16,29 @@ from app.models.tag import Tag
 from app.models.task import Task
 from app.models.task_tag import TaskTag
 from app.schemas.task import TaskCreate, TaskFilters, TaskSortOptions, TaskUpdate
+from app.utils.db_helpers import (
+    QueryBuilder,
+    create_count_query,
+    create_user_resource_query,
+    safe_uuid_convert,
+)
+from app.utils.error_handler import handle_db_operation
 
 
 class CRUDTask(CRUDBase[Task, TaskCreate, TaskUpdate]):
+    @handle_db_operation("ユーザータスク取得")
     async def get_by_user(self, db: AsyncSession, user_id: UUID, task_id: UUID) -> Task | None:
         """ユーザーIDとタスクIDでタスクを取得"""
-        try:
-            stmt = (
-                select(self.model)
-                .options(selectinload(self.model.task_tags).selectinload(TaskTag.tag))
-                .where(and_(self.model.id == task_id, self.model.user_id == user_id))
-            )
-            result = await db.execute(stmt)
-            return result.scalar_one_or_none()
-        except Exception as e:
-            import logging
+        safe_user_id = safe_uuid_convert(user_id, "ユーザーID")
+        safe_task_id = safe_uuid_convert(task_id, "タスクID")
 
-            logger = logging.getLogger(__name__)
-            logger.error(f"ユーザータスク取得エラー: {e}")
-            return None
+        query = create_user_resource_query(Task, safe_user_id, target_id=safe_task_id, with_relations=True)
 
+        result: Any = await db.execute(query)
+        task_result: Task | None = result.scalar_one_or_none()
+        return task_result
+
+    @handle_db_operation("ユーザータスク一覧取得")
     async def get_multi_by_user(
         self,
         db: AsyncSession,
@@ -48,174 +50,146 @@ class CRUDTask(CRUDBase[Task, TaskCreate, TaskUpdate]):
         sort_options: TaskSortOptions | None = None,
     ) -> list[Task]:
         """ユーザーのタスク一覧を取得"""
-        try:
-            # ベースクエリ
-            stmt = (
-                select(self.model)
-                .options(selectinload(self.model.task_tags).selectinload(TaskTag.tag))
-                .where(self.model.user_id == user_id)
-            )
+        # UUIDの安全な変換
+        safe_user_id = safe_uuid_convert(user_id, "ユーザーID")
 
-            # フィルタリング適用
-            if filters:
-                stmt = self._apply_filters(stmt, filters)
+        # QueryBuilderを使用したクエリ構築
+        builder = QueryBuilder(Task)
+        builder.with_task_tags().filter_by_user(safe_user_id)
 
-            # ソート適用
-            stmt = self._apply_sort(stmt, sort_options) if sort_options else stmt.order_by(self.model.created_at.desc())
+        # フィルタリング適用
+        if filters:
+            builder.query = self._apply_filters(builder.query, filters)
 
-            # ページネーション
-            stmt = stmt.offset(skip).limit(limit)
+        # ソート適用
+        if sort_options:
+            builder.query = self._apply_sort(builder.query, sort_options)
+        else:
+            builder.order_by_default()
 
-            result = await db.execute(stmt)
-            return list(result.scalars().all())
+        # ページネーション
+        builder.paginate(skip, limit)
 
-        except Exception as e:
-            import logging
+        # クエリ実行
+        result: Any = await db.execute(builder.build())
+        tasks_result: list[Task] = list(result.scalars().all())
+        return tasks_result
 
-            logger = logging.getLogger(__name__)
-            logger.error(f"ユーザータスク一覧取得エラー: {e}")
-            return []
-
+    @handle_db_operation("ユーザータスク数取得")
     async def count_by_user(self, db: AsyncSession, user_id: UUID, filters: TaskFilters | None = None) -> int:
         """ユーザーのタスク総数を取得"""
-        try:
-            stmt = select(func.count(self.model.id)).where(self.model.user_id == user_id)
+        # UUIDの安全な変換
+        safe_user_id = safe_uuid_convert(user_id, "ユーザーID")
 
-            # フィルタリング適用
-            if filters:
-                stmt = self._apply_filters(stmt, filters)
+        # カウントクエリ
+        query = create_count_query(Task, safe_user_id)
 
-            result = await db.execute(stmt)
-            return result.scalar() or 0
+        # フィルタリング適用
+        if filters:
+            query = self._apply_filters(query, filters)
 
-        except Exception as e:
-            import logging
+        result: Any = await db.execute(query)
+        count_result: int = result.scalar() or 0
+        return count_result
 
-            logger = logging.getLogger(__name__)
-            logger.error(f"ユーザータスク数取得エラー: {e}")
-            return 0
-
+    @handle_db_operation("タグ付きタスク作成")
     async def create_with_tags(self, db: AsyncSession, *, task_in: TaskCreate, user_id: UUID) -> Task:
         """タスクをタグと一緒に作成"""
-        try:
-            # タスク作成データの準備
-            task_data = task_in.model_dump(exclude={"tag_ids"})
-            task_data["user_id"] = user_id
+        # UUIDの安全な変換
+        safe_user_id = safe_uuid_convert(user_id, "ユーザーID")
 
-            # タスク作成
-            db_task = self.model(**task_data)
-            db.add(db_task)
-            await db.flush()  # IDを取得するため
+        # タスク作成データの準備
+        task_data = task_in.model_dump(exclude={"tag_ids"})
+        task_data["user_id"] = safe_user_id
 
-            # タグとの関連付け
-            if task_in.tag_ids:
-                await self._create_task_tag_associations(db, db_task.id, task_in.tag_ids, user_id)
+        # タスク作成
+        db_task = self.model(**task_data)
+        db.add(db_task)
+        await db.flush()  # IDを取得するため
 
-            await db.commit()
-            await db.refresh(db_task)
+        # タグとの関連付け
+        if task_in.tag_ids:
+            await self._create_task_tag_associations(db, db_task.id, task_in.tag_ids, safe_user_id)
 
-            # タグ情報を含めて取得
-            return await self.get_by_user(db, user_id, db_task.id) or db_task
+        await db.commit()
+        await db.refresh(db_task)
 
-        except Exception as e:
-            await db.rollback()
-            import logging
+        # タグ情報を含めて取得
+        task_with_tags = await self.get_by_user(db, safe_user_id, db_task.id)
+        return task_with_tags or db_task
 
-            logger = logging.getLogger(__name__)
-            logger.error(f"タグ付きタスク作成エラー: {e}")
-            raise
-
+    @handle_db_operation("タグ付きタスク更新")
     async def update_with_tags(self, db: AsyncSession, *, db_task: Task, task_in: TaskUpdate) -> Task:
         """タスクをタグと一緒に更新"""
-        try:
-            # タスク更新データの準備
-            update_data = task_in.model_dump(exclude_unset=True, exclude={"tag_ids"})
+        # タスク更新データの準備
+        update_data = task_in.model_dump(exclude_unset=True, exclude={"tag_ids"})
 
-            # ステータス変更時の自動処理
-            if "status" in update_data:
-                if update_data["status"] == TaskStatus.DONE.value and not db_task.completed_at:
-                    update_data["completed_at"] = datetime.now(UTC)
-                elif update_data["status"] != TaskStatus.DONE.value and db_task.completed_at:
-                    update_data["completed_at"] = None
+        # ステータス変更時の自動処理
+        if "status" in update_data:
+            if update_data["status"] == TaskStatus.DONE.value and not db_task.completed_at:
+                update_data["completed_at"] = datetime.now(UTC)
+            elif update_data["status"] != TaskStatus.DONE.value and db_task.completed_at:
+                update_data["completed_at"] = None
 
-            # タスク更新
-            for field, value in update_data.items():
-                setattr(db_task, field, value)
+        # タスク更新
+        for field, value in update_data.items():
+            setattr(db_task, field, value)
 
-            # タグの更新
-            if task_in.tag_ids is not None:
-                await self._update_task_tag_associations(db, db_task.id, task_in.tag_ids, db_task.user_id)
+        # タグの更新
+        if task_in.tag_ids is not None:
+            await self._update_task_tag_associations(db, db_task.id, task_in.tag_ids, db_task.user_id)
 
-            await db.commit()
-            await db.refresh(db_task)
+        await db.commit()
+        await db.refresh(db_task)
 
-            # タグ情報を含めて取得
-            return await self.get_by_user(db, db_task.user_id, db_task.id) or db_task
+        # タグ情報を含めて取得
+        task_with_tags = await self.get_by_user(db, db_task.user_id, db_task.id)
+        return task_with_tags or db_task
 
-        except Exception as e:
-            await db.rollback()
-            import logging
-
-            logger = logging.getLogger(__name__)
-            logger.error(f"タグ付きタスク更新エラー: {e}")
-            raise
-
+    @handle_db_operation("タスクステータス更新")
     async def update_status(self, db: AsyncSession, *, db_task: Task, status: TaskStatus) -> Task:
         """タスクのステータスのみ更新"""
-        try:
-            db_task.status = status.value
+        db_task.status = status.value
 
-            # 完了時の自動処理
-            if status == TaskStatus.DONE and not db_task.completed_at:
-                db_task.completed_at = datetime.now(UTC)
-            elif status != TaskStatus.DONE and db_task.completed_at:
-                db_task.completed_at = None
+        # 完了時の自動処理
+        if status == TaskStatus.DONE and not db_task.completed_at:
+            db_task.completed_at = datetime.now(UTC)
+        elif status != TaskStatus.DONE and db_task.completed_at:
+            db_task.completed_at = None
 
-            await db.commit()
-            await db.refresh(db_task)
-            return db_task
+        await db.commit()
+        await db.refresh(db_task)
+        return db_task
 
-        except Exception as e:
-            await db.rollback()
-            import logging
-
-            logger = logging.getLogger(__name__)
-            logger.error(f"タスクステータス更新エラー: {e}")
-            raise
-
+    @handle_db_operation("タスク位置更新")
     async def update_positions(
         self, db: AsyncSession, *, position_updates: list[dict[str, Any]], user_id: UUID
     ) -> bool:
         """複数タスクの位置を一括更新（ドラッグ&ドロップ用）"""
-        try:
-            for update_data in position_updates:
-                task_id = update_data["id"]
-                new_position = update_data["position"]
-                new_status = update_data.get("status")
+        # UUIDの安全な変換
+        safe_user_id = safe_uuid_convert(user_id, "ユーザーID")
 
-                # 更新クエリの構築
-                update_values = {"position": new_position}
-                if new_status:
-                    update_values["status"] = new_status
+        for update_data in position_updates:
+            task_id = safe_uuid_convert(update_data["id"], "タスクID")
+            new_position = update_data["position"]
+            new_status = update_data.get("status")
 
-                stmt = (
-                    update(self.model)
-                    .where(and_(self.model.id == task_id, self.model.user_id == user_id))
-                    .values(**update_values)
-                )
-                await db.execute(stmt)
+            # 更新クエリの構築
+            update_values = {"position": new_position}
+            if new_status:
+                update_values["status"] = new_status
 
-            await db.commit()
-            return True
+            stmt = (
+                update(self.model)
+                .where(and_(self.model.id == task_id, self.model.user_id == safe_user_id))
+                .values(**update_values)
+            )
+            await db.execute(stmt)
 
-        except Exception as e:
-            await db.rollback()
-            import logging
+        await db.commit()
+        return True
 
-            logger = logging.getLogger(__name__)
-            logger.error(f"タスク位置更新エラー: {e}")
-            return False
-
+    @handle_db_operation("ステータス別タスク取得")
     async def get_by_status(
         self,
         db: AsyncSession,
@@ -226,57 +200,46 @@ class CRUDTask(CRUDBase[Task, TaskCreate, TaskUpdate]):
         limit: int = APIConstants.DEFAULT_PAGE_SIZE,
     ) -> list[Task]:
         """ステータス別でタスクを取得"""
-        try:
-            stmt = (
-                select(self.model)
-                .options(selectinload(self.model.task_tags).selectinload(TaskTag.tag))
-                .where(and_(self.model.user_id == user_id, self.model.status == status.value))
-                .order_by(self.model.position.asc(), self.model.created_at.desc())
-                .offset(skip)
-                .limit(limit)
-            )
+        # UUIDの安全な変換
+        safe_user_id = safe_uuid_convert(user_id, "ユーザーID")
 
-            result = await db.execute(stmt)
-            return list(result.scalars().all())
+        # QueryBuilderを使用したクエリ構築
+        builder = QueryBuilder(Task)
+        builder.with_task_tags().filter_by_user(safe_user_id)
+        builder.where(self.model.status == status.value)
+        builder.order_by(self.model.position.asc(), self.model.created_at.desc())
+        builder.paginate(skip, limit)
 
-        except Exception as e:
-            import logging
+        result: Any = await db.execute(builder.build())
+        tasks_result: list[Task] = list(result.scalars().all())
+        return tasks_result
 
-            logger = logging.getLogger(__name__)
-            logger.error(f"ステータス別タスク取得エラー: {e}")
-            return []
-
+    @handle_db_operation("期限切れタスク取得")
     async def get_overdue_tasks(
         self, db: AsyncSession, user_id: UUID, *, skip: int = 0, limit: int = APIConstants.DEFAULT_PAGE_SIZE
     ) -> list[Task]:
         """期限切れタスクを取得"""
-        try:
-            now = datetime.now(UTC)
-            stmt = (
-                select(self.model)
-                .options(selectinload(self.model.task_tags).selectinload(TaskTag.tag))
-                .where(
-                    and_(
-                        self.model.user_id == user_id,
-                        self.model.due_date < now,
-                        self.model.status != TaskStatus.DONE.value,
-                        self.model.status != TaskStatus.ARCHIVED.value,
-                    )
-                )
-                .order_by(self.model.due_date.asc())
-                .offset(skip)
-                .limit(limit)
+        # UUIDの安全な変換
+        safe_user_id = safe_uuid_convert(user_id, "ユーザーID")
+
+        now = datetime.now(UTC)
+
+        # QueryBuilderを使用したクエリ構築
+        builder = QueryBuilder(Task)
+        builder.with_task_tags().filter_by_user(safe_user_id)
+        builder.where(
+            and_(
+                self.model.due_date < now,
+                self.model.status != TaskStatus.DONE.value,
+                self.model.status != TaskStatus.ARCHIVED.value,
             )
+        )
+        builder.order_by(self.model.due_date.asc())
+        builder.paginate(skip, limit)
 
-            result = await db.execute(stmt)
-            return list(result.scalars().all())
-
-        except Exception as e:
-            import logging
-
-            logger = logging.getLogger(__name__)
-            logger.error(f"期限切れタスク取得エラー: {e}")
-            return []
+        result: Any = await db.execute(builder.build())
+        tasks_result: list[Task] = list(result.scalars().all())
+        return tasks_result
 
     def _apply_filters(self, stmt: Any, filters: TaskFilters) -> Any:
         """フィルタリング条件を適用"""
@@ -310,7 +273,9 @@ class CRUDTask(CRUDBase[Task, TaskCreate, TaskUpdate]):
             stmt = stmt.join(TaskTag, self.model.id == TaskTag.task_id)
 
             if filters.tag_ids:
-                stmt = stmt.where(TaskTag.tag_id.in_(filters.tag_ids))
+                # UUIDの安全な変換
+                safe_tag_ids = [safe_uuid_convert(tag_id, "タグID") for tag_id in filters.tag_ids]
+                stmt = stmt.where(TaskTag.tag_id.in_(safe_tag_ids))
 
             if filters.tag_names:
                 stmt = stmt.join(Tag, TaskTag.tag_id == Tag.id)
@@ -334,40 +299,49 @@ class CRUDTask(CRUDBase[Task, TaskCreate, TaskUpdate]):
         else:
             return stmt.order_by(sort_field.asc())
 
+    @handle_db_operation("タスクタグ関連付け作成")
     async def _create_task_tag_associations(
         self, db: AsyncSession, task_id: UUID, tag_ids: list[UUID], user_id: UUID
     ) -> None:
         """タスクとタグの関連付けを作成"""
+        # UUIDの安全な変換
+        safe_task_id = safe_uuid_convert(task_id, "タスクID")
+        safe_user_id = safe_uuid_convert(user_id, "ユーザーID")
+        safe_tag_ids = [safe_uuid_convert(tag_id, "タグID") for tag_id in tag_ids]
+
         # タグの存在確認
         stmt = select(Tag.id).where(
             and_(
-                Tag.id.in_(tag_ids),
-                Tag.user_id == user_id,
+                Tag.id.in_(safe_tag_ids),
+                Tag.user_id == safe_user_id,
                 Tag.is_active == True,  # noqa: E712
             )
         )
-        result = await db.execute(stmt)
+        result: Any = await db.execute(stmt)
         valid_tag_ids = {row[0] for row in result.fetchall()}
 
         # 有効なタグのみ関連付け
-        for tag_id in tag_ids:
+        for tag_id in safe_tag_ids:
             if tag_id in valid_tag_ids:
-                task_tag = TaskTag(task_id=task_id, tag_id=tag_id)
+                task_tag = TaskTag(task_id=safe_task_id, tag_id=tag_id)
                 db.add(task_tag)
 
+    @handle_db_operation("タスクタグ関連付け更新")
     async def _update_task_tag_associations(
         self, db: AsyncSession, task_id: UUID, tag_ids: list[UUID], user_id: UUID
     ) -> None:
         """タスクとタグの関連付けを更新"""
-        # 既存の関連付けを削除
-        from sqlalchemy import delete
+        # UUIDの安全な変換
+        safe_task_id = safe_uuid_convert(task_id, "タスクID")
+        safe_user_id = safe_uuid_convert(user_id, "ユーザーID")
 
-        delete_stmt = delete(TaskTag).where(TaskTag.task_id == task_id)
+        # 既存の関連付けを削除
+        delete_stmt = delete(TaskTag).where(TaskTag.task_id == safe_task_id)
         await db.execute(delete_stmt)
 
         # 新しい関連付けを作成
         if tag_ids:
-            await self._create_task_tag_associations(db, task_id, tag_ids, user_id)
+            await self._create_task_tag_associations(db, safe_task_id, tag_ids, safe_user_id)
 
 
 task_crud = CRUDTask(Task)

@@ -56,9 +56,6 @@ async def get_tasks(
     order: str = Query(default="desc", description="ソート順序（asc/desc）"),
 ) -> TaskListResponse:
     """タスク一覧を取得"""
-    # ページネーション計算
-    skip = (page - 1) * per_page
-
     filters = TaskFilters(
         status=status,
         priority=priority,
@@ -74,7 +71,7 @@ async def get_tasks(
 
     try:
         task_list = await task_service.get_tasks(
-            db, current_user.id, skip=skip, limit=per_page, filters=filters, sort_options=sort_options
+            db, current_user.id, page=page, per_page=per_page, filters=filters, sort_options=sort_options
         )
 
         return task_list
@@ -207,10 +204,8 @@ async def get_tasks_by_status(
     ),
 ) -> list[TaskResponse]:
     """ステータス別でタスクを取得"""
-    skip = (page - 1) * per_page
-
     try:
-        tasks = await task_service.get_tasks_by_status(db, current_user.id, task_status, skip=skip, limit=per_page)
+        tasks = await task_service.get_tasks_by_status(db, current_user.id, task_status, page=page, per_page=per_page)
 
         return [TaskResponse.model_validate(task) for task in tasks]
 
@@ -229,10 +224,8 @@ async def get_overdue_tasks(
     ),
 ) -> list[TaskResponse]:
     """期限切れタスクを取得"""
-    skip = (page - 1) * per_page
-
     try:
-        tasks = await task_service.get_overdue_tasks(db, current_user.id, skip=skip, limit=per_page)
+        tasks = await task_service.get_overdue_tasks(db, current_user.id, page=page, per_page=per_page)
 
         return [TaskResponse.model_validate(task) for task in tasks]
 

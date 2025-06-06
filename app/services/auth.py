@@ -9,13 +9,15 @@ from app.core.security import security_manager
 from app.crud.user import user_crud
 from app.models.user import User
 from app.schemas.auth import UserCreate
+from app.utils.error_handler import handle_service_error
 
 
 class AuthService:
+    @handle_service_error("ユーザー認証")
     async def authenticate_user(self, db: AsyncSession, email: str, password: str) -> User | None:
         """ユーザー認証"""
         # メールアドレスでユーザー検索
-        user = await user_crud.get_by_email(db, email=email)
+        user: User | None = await user_crud.get_by_email(db, email=email)
         if not user:
             return None
 
@@ -29,15 +31,16 @@ class AuthService:
 
         return user
 
+    @handle_service_error("ユーザー作成")
     async def create_user(self, db: AsyncSession, user_in: UserCreate) -> User:
         """新規ユーザー作成"""
         # メールアドレス重複チェック
-        existing_user = await user_crud.get_by_email(db, email=user_in.email)
+        existing_user: User | None = await user_crud.get_by_email(db, email=user_in.email)
         if existing_user:
             raise ValueError("このメールアドレスは既に使用されています")
 
         # パスワードハッシュ化
-        hashed_password = security_manager.get_password_hash(user_in.password)
+        hashed_password: str = security_manager.get_password_hash(user_in.password)
 
         # ユーザー作成データ準備
         user_data = {
@@ -47,7 +50,8 @@ class AuthService:
             "is_active": True,
         }
 
-        return await user_crud.create(db, obj_in=user_data)
+        created_user: User = await user_crud.create(db, obj_in=user_data)
+        return created_user
 
 
 auth_service = AuthService()

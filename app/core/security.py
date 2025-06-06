@@ -4,7 +4,7 @@ JWT認証、Argon2パスワードハッシュ化、トークン管理を提供
 """
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Optional
 
 import jwt
@@ -22,15 +22,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.redis import cache
+from app.utils.jwt_helpers import (
+    TOKEN_TYPE_ACCESS,
+    create_jwt_helper,
+    extract_jti_from_token,
+    extract_user_id_from_token,
+    validate_token_type,
+)
 
 # 循環インポート回避のための型チェック時のみインポート
 if TYPE_CHECKING:
     from app.models.user import User
 
-# セキュリティ定数（Lint警告回避のため設定: 実際は問題ない）
-TOKEN_TYPE_ACCESS = "access"  # nosec B105  # noqa: S105
-TOKEN_TYPE_REFRESH = "refresh"  # nosec B105 # noqa: S105
-TOKEN_TYPE_PASSWORD_RESET = "password_reset"  # nosec B105 # noqa: S105
+# JWT ヘルパーの初期化
+jwt_helper = create_jwt_helper(settings.JWT_SECRET_KEY, settings.JWT_ALGORITHM)
 
 # Argon2パスワードハッシャー（設定値を使用）
 argon2_config = settings.get_argon2_config()
@@ -133,56 +138,47 @@ class SecurityManager:
 
         Returns:
             JWT文字列
+
+        Raises:
+            ValueError: ユーザーIDが指定されていない場合
+            RuntimeError: トークン生成に失敗した場合
         """
-        to_encode = data.copy()
+        user_id = data.get("sub")
+        if not user_id:
+            raise ValueError("ユーザーIDが指定されていません")
 
-        if expires_delta:
-            expire = datetime.now(UTC) + expires_delta
-        else:
-            expire = datetime.now(UTC) + timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
+        if expires_delta is None:
+            expires_delta = timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
 
-        # JTI（JWT ID）を追加してトークンを一意識別可能にする
-        jti = str(uuid.uuid4())
-        to_encode.update({"exp": expire, "iat": datetime.now(UTC), "jti": jti, "type": TOKEN_TYPE_ACCESS})
+        # 追加クレームの抽出（sub以外）
+        additional_claims = {k: v for k, v in data.items() if k != "sub"}
 
         try:
-            encoded_jwt_raw = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
-            # PyJWTのバージョンによってbytesまたはstrが返される可能性があるため変換
-            encoded_jwt: str = (
-                encoded_jwt_raw.decode("utf-8") if isinstance(encoded_jwt_raw, bytes) else encoded_jwt_raw
+            return jwt_helper.create_access_token(
+                user_id=str(user_id),
+                expires_delta=expires_delta,
+                additional_claims=additional_claims if additional_claims else None,
             )
-            return encoded_jwt
         except Exception as e:
             raise RuntimeError(f"JWTトークン生成に失敗しました: {e}") from e
 
     @staticmethod
     def create_refresh_token(user_id: str) -> str:
-        """JWTリフレッシュトークン生成
+        """JWTリフレッシュトークン生成（改善版）
 
         Args:
             user_id: ユーザーID
 
         Returns:
             JWT文字列
-        """
-        expire = datetime.now(UTC) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
 
-        jti = str(uuid.uuid4())
-        to_encode = {
-            "sub": user_id,
-            "exp": expire,
-            "iat": datetime.now(UTC),
-            "jti": jti,
-            "type": TOKEN_TYPE_REFRESH,
-        }
+        Raises:
+            RuntimeError: トークン生成に失敗した場合
+        """
+        expires_delta = timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
 
         try:
-            encoded_jwt_raw = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
-            # PyJWTのバージョンによってbytesまたはstrが返される可能性があるため変換
-            encoded_jwt: str = (
-                encoded_jwt_raw.decode("utf-8") if isinstance(encoded_jwt_raw, bytes) else encoded_jwt_raw
-            )
-            return encoded_jwt
+            return jwt_helper.create_refresh_token(user_id, expires_delta)
         except Exception as e:
             raise RuntimeError(f"リフレッシュトークン生成に失敗しました: {e}") from e
 
@@ -200,16 +196,10 @@ class SecurityManager:
             HTTPException: トークンが無効な場合
         """
         try:
-            payload: dict[str, Any] = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+            payload = jwt_helper.decode(token)
 
             # JTI（JWT ID）の確認
-            jti = payload.get("jti")
-            if not jti:
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="無効なトークン形式です",
-                    headers={"WWW-Authenticate": "Bearer"},
-                )
+            jti = extract_jti_from_token(payload)
 
             # トークンブラックリストのチェック
             is_blacklisted = await cache.exists(f"blacklist:{jti}")
@@ -222,6 +212,13 @@ class SecurityManager:
 
             return payload
 
+        except ValueError as e:
+            # extract_jti_from_token からのエラー
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=str(e),
+                headers={"WWW-Authenticate": "Bearer"},
+            ) from e
         except jwt.ExpiredSignatureError:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -235,7 +232,6 @@ class SecurityManager:
                 headers={"WWW-Authenticate": "Bearer"},
             ) from None
         except Exception as e:
-            # 予期しないエラー
             import logging
 
             logger = logging.getLogger(__name__)
@@ -256,18 +252,17 @@ class SecurityManager:
             token: 無効化するJWT文字列
         """
         try:
-            payload = jwt.decode(
-                token,
-                settings.JWT_SECRET_KEY,
-                algorithms=[settings.JWT_ALGORITHM],
-                options={"verify_exp": False},  # 期限切れトークンも処理
-            )
+            # JTI抽出（期限切れトークンも処理）
+            jti = jwt_helper.extract_jti(token)
 
-            jti = payload.get("jti")
+            # トークンペイロードから有効期限取得
+            payload = jwt_helper.decode(token, verify_exp=False)
             exp = payload.get("exp")
 
-            if jti and exp:
+            if exp:
                 # トークンの残り有効期限を計算
+                from datetime import UTC, datetime
+
                 current_time = datetime.now(UTC).timestamp()
                 ttl = int(exp - current_time)
 
@@ -275,9 +270,6 @@ class SecurityManager:
                 if ttl > 0:
                     await cache.set(f"blacklist:{jti}", "1", expire=ttl)
 
-        except jwt.InvalidTokenError:
-            # 無効なトークンは無視（既に無効なので問題なし）
-            pass
         except Exception as e:
             # ブラックリスト登録の失敗はログに記録するが例外は発生させない
             import logging
@@ -319,18 +311,17 @@ async def get_current_user(
     payload = await security_manager.verify_token(credentials.credentials)
 
     # ユーザーID取得（型安全性のためのチェック）
-    user_id_raw = payload.get("sub")
-    if user_id_raw is None or not isinstance(user_id_raw, str):
+    try:
+        user_id = extract_user_id_from_token(payload)
+    except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="無効な認証情報です",
+            detail=str(e),
             headers={"WWW-Authenticate": "Bearer"},
-        )
-    user_id: str = user_id_raw
+        ) from e
 
     # トークンタイプの確認
-    token_type_raw = payload.get("type")
-    if token_type_raw != TOKEN_TYPE_ACCESS:
+    if not validate_token_type(payload, TOKEN_TYPE_ACCESS):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="無効なトークンタイプです",
@@ -342,13 +333,16 @@ async def get_current_user(
         # 循環インポートを避けるため、ここでインポート
         from app.crud.user import user_crud
 
-        user = await user_crud.get(db, id=uuid.UUID(user_id))
-        if user is None:
+        user_result = await user_crud.get(db, id=uuid.UUID(user_id))
+        if user_result is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="ユーザーが見つかりません",
                 headers={"WWW-Authenticate": "Bearer"},
             )
+
+        user: User = user_result
+
     except ValueError:
         # UUID変換エラー
         raise HTTPException(
@@ -424,28 +418,29 @@ async def get_current_user_optional(
         return None
 
 
-# セキュリティユーティリティ関数
+# セキュリティユーティリティ関数（改善版）
 def generate_password_reset_token(user_id: str) -> str:
-    """パスワードリセットトークン生成
+    """パスワードリセットトークン生成（改善版）
 
     Args:
         user_id: ユーザーID
 
     Returns:
         パスワードリセット用JWT
+
+    Raises:
+        RuntimeError: トークン生成に失敗した場合
     """
-    expire = datetime.now(UTC) + timedelta(hours=1)  # 1時間有効
+    expires_delta = timedelta(hours=1)
 
-    to_encode = {"sub": user_id, "exp": expire, "iat": datetime.now(UTC), "type": TOKEN_TYPE_PASSWORD_RESET}
-
-    encoded_jwt_raw = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
-    # PyJWTのバージョンによってbytesまたはstrが返される可能性があるため変換
-    encoded_jwt: str = encoded_jwt_raw.decode("utf-8") if isinstance(encoded_jwt_raw, bytes) else encoded_jwt_raw
-    return encoded_jwt
+    try:
+        return jwt_helper.create_password_reset_token(user_id, expires_delta)
+    except Exception as e:
+        raise RuntimeError(f"パスワードリセットトークン生成に失敗しました: {e}") from e
 
 
 def verify_password_reset_token(token: str) -> str | None:
-    """パスワードリセットトークン検証
+    """パスワードリセットトークン検証（改善版）
 
     Args:
         token: パスワードリセットトークン
@@ -454,19 +449,6 @@ def verify_password_reset_token(token: str) -> str | None:
         有効な場合はユーザーID、無効な場合はNone
     """
     try:
-        payload: dict[str, Any] = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
-
-        if payload.get("type") != TOKEN_TYPE_PASSWORD_RESET:
-            return None
-
-        # 型安全性のためのチェック
-        user_id_raw = payload.get("sub")
-        if user_id_raw is None or not isinstance(user_id_raw, str):
-            return None
-
-        # 型を明示的にキャスト
-        user_id: str = user_id_raw
-        return user_id
-
-    except jwt.InvalidTokenError:
+        return jwt_helper.verify_password_reset_token(token)
+    except Exception:
         return None

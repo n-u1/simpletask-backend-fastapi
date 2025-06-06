@@ -15,6 +15,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.base import Base
+from app.utils.error_handler import handle_db_operation
 
 ModelType = TypeVar("ModelType", bound=Base)
 CreateSchemaType = TypeVar("CreateSchemaType", bound=BaseModel)
@@ -35,6 +36,7 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         """
         self.model = model
 
+    @handle_db_operation("レコード取得")
     async def get(self, db: AsyncSession, id: UUID | str) -> ModelType | None:
         """IDでレコードを取得
 
@@ -45,18 +47,11 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         Returns:
             見つかった場合はモデルインスタンス、見つからない場合はNone
         """
-        try:
-            stmt = select(self.model).where(self.model.id == id)
-            result = await db.execute(stmt)
-            return result.scalar_one_or_none()
-        except Exception as e:
-            # ログ記録（本番環境では詳細ログ）
-            import logging
+        stmt = select(self.model).where(self.model.id == id)
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
 
-            logger = logging.getLogger(__name__)
-            logger.error(f"レコード取得エラー (ID: {id}): {e}")
-            return None
-
+    @handle_db_operation("複数レコード取得")
     async def get_multi(
         self, db: AsyncSession, *, skip: int = 0, limit: int = 100, order_by: str | None = None, desc: bool = False
     ) -> list[ModelType]:
@@ -72,33 +67,26 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         Returns:
             モデルインスタンスのリスト
         """
-        try:
-            stmt = select(self.model)
+        stmt = select(self.model)
 
-            if order_by:
-                if hasattr(self.model, order_by):
-                    order_column = getattr(self.model, order_by)
-                    stmt = stmt.order_by(order_column.desc() if desc else order_column)
-                else:
-                    # デフォルトソート（作成日時降順）
-                    stmt = stmt.order_by(self.model.created_at.desc())
+        if order_by:
+            if hasattr(self.model, order_by):
+                order_column = getattr(self.model, order_by)
+                stmt = stmt.order_by(order_column.desc() if desc else order_column)
             else:
+                # デフォルトソート（作成日時降順）
                 stmt = stmt.order_by(self.model.created_at.desc())
+        else:
+            stmt = stmt.order_by(self.model.created_at.desc())
 
-            # ページネーション
-            stmt = stmt.offset(skip).limit(limit)
+        # ページネーション
+        stmt = stmt.offset(skip).limit(limit)
 
-            result = await db.execute(stmt)
-            users: Sequence[ModelType] = result.scalars().all()
-            return list(users)
+        result = await db.execute(stmt)
+        users: Sequence[ModelType] = result.scalars().all()
+        return list(users)
 
-        except Exception as e:
-            import logging
-
-            logger = logging.getLogger(__name__)
-            logger.error(f"複数レコード取得エラー: {e}")
-            return []
-
+    @handle_db_operation("レコード数取得")
     async def count(self, db: AsyncSession) -> int:
         """総レコード数を取得
 
@@ -108,17 +96,11 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         Returns:
             総レコード数
         """
-        try:
-            stmt = select(func.count(self.model.id))
-            result = await db.execute(stmt)
-            return result.scalar() or 0
-        except Exception as e:
-            import logging
+        stmt = select(func.count(self.model.id))
+        result = await db.execute(stmt)
+        return result.scalar() or 0
 
-            logger = logging.getLogger(__name__)
-            logger.error(f"レコード数取得エラー: {e}")
-            return 0
-
+    @handle_db_operation("レコード作成")
     async def create(self, db: AsyncSession, *, obj_in: CreateSchemaType | dict[str, Any]) -> ModelType:
         """新しいレコードを作成
 
@@ -132,25 +114,17 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         Raises:
             Exception: データベースエラーの場合
         """
-        try:
-            # Pydanticモデルの場合は辞書に変換
-            obj_in_data = obj_in if isinstance(obj_in, dict) else jsonable_encoder(obj_in)
+        # Pydanticモデルの場合は辞書に変換
+        obj_in_data = obj_in if isinstance(obj_in, dict) else jsonable_encoder(obj_in)
 
-            # SQLAlchemyモデルインスタンス作成
-            db_obj = self.model(**obj_in_data)
-            db.add(db_obj)
-            await db.commit()
-            await db.refresh(db_obj)
-            return db_obj
+        # SQLAlchemyモデルインスタンス作成
+        db_obj = self.model(**obj_in_data)
+        db.add(db_obj)
+        await db.commit()
+        await db.refresh(db_obj)
+        return db_obj
 
-        except Exception as e:
-            await db.rollback()
-            import logging
-
-            logger = logging.getLogger(__name__)
-            logger.error(f"レコード作成エラー: {e}")
-            raise
-
+    @handle_db_operation("レコード更新")
     async def update(
         self, db: AsyncSession, *, db_obj: ModelType, obj_in: UpdateSchemaType | dict[str, Any]
     ) -> ModelType:
@@ -167,30 +141,22 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         Raises:
             Exception: データベースエラーの場合
         """
-        try:
-            # 更新データの準備
-            update_data = obj_in if isinstance(obj_in, dict) else obj_in.model_dump(exclude_unset=True)
+        # 更新データの準備
+        update_data = obj_in if isinstance(obj_in, dict) else obj_in.model_dump(exclude_unset=True)
 
-            # None値や空文字列の除外
-            update_data = {k: v for k, v in update_data.items() if v is not None}
+        # None値や空文字列の除外
+        update_data = {k: v for k, v in update_data.items() if v is not None}
 
-            # モデルインスタンスの更新
-            for field, value in update_data.items():
-                if hasattr(db_obj, field):
-                    setattr(db_obj, field, value)
+        # モデルインスタンスの更新
+        for field, value in update_data.items():
+            if hasattr(db_obj, field):
+                setattr(db_obj, field, value)
 
-            await db.commit()
-            await db.refresh(db_obj)
-            return db_obj
+        await db.commit()
+        await db.refresh(db_obj)
+        return db_obj
 
-        except Exception as e:
-            await db.rollback()
-            import logging
-
-            logger = logging.getLogger(__name__)
-            logger.error(f"レコード更新エラー: {e}")
-            raise
-
+    @handle_db_operation("レコード削除")
     async def delete(self, db: AsyncSession, *, id: UUID | str) -> ModelType | None:
         """レコードを削除
 
@@ -204,25 +170,21 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         Raises:
             Exception: データベースエラーの場合
         """
-        try:
-            # 対象レコードを取得
-            obj = await self.get(db, id=id)
-            if obj is None:
-                return None
+        # 対象レコードを取得
+        obj = await self.get(db, id=id)
+        if obj is None:
+            return None
 
-            # 削除実行
-            await db.delete(obj)
-            await db.commit()
-            return obj
+        # 削除前にオブジェクトの情報を保存（型安全性のため）
+        deleted_obj: ModelType = obj
 
-        except Exception as e:
-            await db.rollback()
-            import logging
+        # 削除実行
+        await db.delete(obj)
+        await db.commit()
 
-            logger = logging.getLogger(__name__)
-            logger.error(f"レコード削除エラー (ID: {id}): {e}")
-            raise
+        return deleted_obj
 
+    @handle_db_operation("レコード存在確認")
     async def exists(self, db: AsyncSession, id: UUID | str) -> bool:
         """レコードの存在確認
 
@@ -233,18 +195,12 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         Returns:
             存在する場合True、しない場合False
         """
-        try:
-            stmt = select(self.model.id).where(self.model.id == id)
-            result = await db.execute(stmt)
-            return result.scalar_one_or_none() is not None
-        except Exception as e:
-            import logging
-
-            logger = logging.getLogger(__name__)
-            logger.error(f"レコード存在確認エラー (ID: {id}): {e}")
-            return False
+        stmt = select(self.model.id).where(self.model.id == id)
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none() is not None
 
     # バルク操作
+    @handle_db_operation("複数レコード作成")
     async def create_multi(
         self, db: AsyncSession, *, obj_list: list[CreateSchemaType | dict[str, Any]]
     ) -> list[ModelType]:
@@ -260,32 +216,24 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         Raises:
             Exception: データベースエラーの場合
         """
-        try:
-            db_objects = []
+        db_objects = []
 
-            for obj_in in obj_list:
-                obj_in_data = obj_in if isinstance(obj_in, dict) else jsonable_encoder(obj_in)
+        for obj_in in obj_list:
+            obj_in_data = obj_in if isinstance(obj_in, dict) else jsonable_encoder(obj_in)
 
-                db_obj = self.model(**obj_in_data)
-                db_objects.append(db_obj)
+            db_obj = self.model(**obj_in_data)
+            db_objects.append(db_obj)
 
-            db.add_all(db_objects)
-            await db.commit()
+        db.add_all(db_objects)
+        await db.commit()
 
-            # 全オブジェクトをリフレッシュ
-            for db_obj in db_objects:
-                await db.refresh(db_obj)
+        # 全オブジェクトをリフレッシュ
+        for db_obj in db_objects:
+            await db.refresh(db_obj)
 
-            return list(db_objects)
+        return list(db_objects)
 
-        except Exception as e:
-            await db.rollback()
-            import logging
-
-            logger = logging.getLogger(__name__)
-            logger.error(f"複数レコード作成エラー: {e}")
-            raise
-
+    @handle_db_operation("複数レコード削除")
     async def delete_multi(self, db: AsyncSession, *, ids: list[UUID | str]) -> int:
         """複数レコードを一括削除
 
@@ -299,16 +247,7 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         Raises:
             Exception: データベースエラーの場合
         """
-        try:
-            stmt = delete(self.model).where(self.model.id.in_(ids))
-            result = await db.execute(stmt)
-            await db.commit()
-            return result.rowcount
-
-        except Exception as e:
-            await db.rollback()
-            import logging
-
-            logger = logging.getLogger(__name__)
-            logger.error(f"複数レコード削除エラー: {e}")
-            raise
+        stmt = delete(self.model).where(self.model.id.in_(ids))
+        result = await db.execute(stmt)
+        await db.commit()
+        return result.rowcount

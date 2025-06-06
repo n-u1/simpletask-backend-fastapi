@@ -20,6 +20,7 @@ from app.schemas.task import (
     TaskSortOptions,
     TaskUpdate,
 )
+from app.utils.pagination import calculate_pagination, create_pagination_result
 
 
 class TaskService:
@@ -34,8 +35,9 @@ class TaskService:
             return None
 
         # アクセス権限チェック
-        if task.user_id != user_id:
-            raise PermissionError(ErrorMessages.TASK_ACCESS_DENIED)
+        from app.utils.permission import ensure_resource_access
+
+        ensure_resource_access(task, user_id, "タスク")
 
         return task
 
@@ -44,34 +46,37 @@ class TaskService:
         db: AsyncSession,
         user_id: UUID,
         *,
-        skip: int = 0,
-        limit: int = APIConstants.DEFAULT_PAGE_SIZE,
+        page: int = 1,
+        per_page: int = APIConstants.DEFAULT_PAGE_SIZE,
         filters: TaskFilters | None = None,
         sort_options: TaskSortOptions | None = None,
     ) -> TaskListResponse:
         """タスク一覧を取得"""
-        # 制限値チェック
-        limit = min(limit, APIConstants.MAX_PAGE_SIZE)
-        limit = max(limit, APIConstants.MIN_PAGE_SIZE)
+        # ページネーション計算
+        pagination_params = calculate_pagination(page, per_page)
 
         # タスク取得
         tasks = await self.task_crud.get_multi_by_user(
-            db, user_id, skip=skip, limit=limit, filters=filters, sort_options=sort_options
+            db,
+            user_id,
+            skip=pagination_params.skip,
+            limit=pagination_params.limit,
+            filters=filters,
+            sort_options=sort_options,
         )
 
         # 総件数取得
         total = await self.task_crud.count_by_user(db, user_id, filters)
 
-        # ページネーション計算
-        page = (skip // limit) + 1
-        total_pages = (total + limit - 1) // limit
+        # ページネーション結果作成
+        pagination_result = create_pagination_result(pagination_params.page, pagination_params.limit, total)
 
         return TaskListResponse(
             tasks=[TaskResponse.model_validate(task) for task in tasks],
-            total=total,
-            page=page,
-            per_page=limit,
-            total_pages=total_pages,
+            total=pagination_result.total,
+            page=pagination_result.page,
+            per_page=pagination_result.per_page,
+            total_pages=pagination_result.total_pages,
         )
 
     async def create_task(self, db: AsyncSession, task_in: TaskCreate, user_id: UUID) -> Task:
@@ -155,34 +160,52 @@ class TaskService:
         user_id: UUID,
         status: TaskStatus,
         *,
-        skip: int = 0,
-        limit: int = APIConstants.DEFAULT_PAGE_SIZE,
+        page: int = 1,
+        per_page: int = APIConstants.DEFAULT_PAGE_SIZE,
     ) -> list[Task]:
         """ステータス別でタスクを取得"""
-        limit = min(limit, APIConstants.MAX_PAGE_SIZE)
+        # ページネーション計算
+        pagination_params = calculate_pagination(page, per_page)
 
-        tasks = await self.task_crud.get_by_status(db, user_id, status, skip=skip, limit=limit)
+        tasks = await self.task_crud.get_by_status(
+            db, user_id, status, skip=pagination_params.skip, limit=pagination_params.limit
+        )
 
         return tasks
 
     async def get_overdue_tasks(
-        self, db: AsyncSession, user_id: UUID, *, skip: int = 0, limit: int = APIConstants.DEFAULT_PAGE_SIZE
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+        *,
+        page: int = 1,
+        per_page: int = APIConstants.DEFAULT_PAGE_SIZE,
     ) -> list[Task]:
         """期限切れタスクを取得"""
-        limit = min(limit, APIConstants.MAX_PAGE_SIZE)
+        # ページネーション計算
+        pagination_params = calculate_pagination(page, per_page)
 
-        tasks = await self.task_crud.get_overdue_tasks(db, user_id, skip=skip, limit=limit)
+        tasks = await self.task_crud.get_overdue_tasks(
+            db, user_id, skip=pagination_params.skip, limit=pagination_params.limit
+        )
 
         return tasks
 
     async def _validate_tag_ownership(self, db: AsyncSession, tag_ids: list[UUID], user_id: UUID) -> None:
         """タグの所有権を検証"""
+        from app.utils.permission import create_permission_checker
+
+        permission_checker = create_permission_checker(user_id)
+
+        # 利用可能なタグを一括取得
+        available_tags = []
         for tag_id in tag_ids:
             tag = await self.tag_crud.get_by_user(db, user_id, tag_id)
-            if not tag:
-                raise ValueError(f"タグ（ID: {tag_id}）が見つかりません")
-            if not tag.is_active:
-                raise ValueError(f"タグ「{tag.name}」は無効化されています")
+            if tag:
+                available_tags.append(tag)
+
+        # 一括権限チェック
+        permission_checker.validate_tag_ownership_list(tag_ids, available_tags)
 
 
 task_service = TaskService()

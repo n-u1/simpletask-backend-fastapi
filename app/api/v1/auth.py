@@ -24,9 +24,11 @@ from app.schemas.auth import (
     UserResponse,
 )
 from app.services.auth import auth_service
+from app.utils.error_handler import get_logger, handle_api_error
 
 # ルーター定義
 router = APIRouter()
+logger = get_logger(__name__)
 
 # セキュリティ定数（Lint警告対応）
 TOKEN_TYPE_BEARER = "bearer"  # nosec B105 # noqa: S105
@@ -72,27 +74,18 @@ async def apply_login_rate_limit(request: Request) -> None:
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@handle_api_error("ユーザー登録")
 async def register(user_in: UserCreate, db: AsyncSession = db_dependency) -> Any:
     """ユーザー登録
 
     新規ユーザーアカウントを作成
     """
-    try:
-        user = await auth_service.create_user(db, user_in)
-        return UserResponse.model_validate(user)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
-    except Exception as e:
-        import logging
-
-        logger = logging.getLogger(__name__)
-        logger.error(f"ユーザー登録エラー: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="ユーザー登録中にエラーが発生しました"
-        ) from e
+    user = await auth_service.create_user(db, user_in)
+    return UserResponse.model_validate(user)
 
 
 @router.post("/login", response_model=Token)
+@handle_api_error("ユーザーログイン")
 async def login(
     form_data: OAuth2PasswordRequestForm = form_dependency,
     db: AsyncSession = db_dependency,
@@ -102,122 +95,96 @@ async def login(
 
     メールアドレスとパスワードでログインし、アクセストークンを取得
     """
-    try:
-        # ユーザー認証
-        user = await auth_service.authenticate_user(
-            db,
-            email=form_data.username,  # OAuth2仕様ではusernameフィールドを使用
-            password=form_data.password,
-        )
+    # ユーザー認証
+    user = await auth_service.authenticate_user(
+        db,
+        email=form_data.username,  # OAuth2仕様ではusernameフィールドを使用
+        password=form_data.password,
+    )
 
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="メールアドレスまたはパスワードが正しくありません",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-
-        # トークン生成
-        access_token_expires = timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
-        access_token = security_manager.create_access_token(
-            data={"sub": str(user.id)}, expires_delta=access_token_expires
-        )
-
-        refresh_token = security_manager.create_refresh_token(str(user.id))
-
-        return Token(
-            access_token=access_token,
-            token_type=TOKEN_TYPE_BEARER,
-            expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-            refresh_token=refresh_token,
-            user=UserResponse.model_validate(user),
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        import logging
-
-        logger = logging.getLogger(__name__)
-        logger.error(f"ログインエラー: {e}")
+    if not user:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="ログイン処理中にエラーが発生しました"
-        ) from e
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="メールアドレスまたはパスワードが正しくありません",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # トークン生成
+    access_token_expires = timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = security_manager.create_access_token(data={"sub": str(user.id)}, expires_delta=access_token_expires)
+
+    refresh_token = security_manager.create_refresh_token(str(user.id))
+
+    return Token(
+        access_token=access_token,
+        token_type=TOKEN_TYPE_BEARER,
+        expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        refresh_token=refresh_token,
+        user=UserResponse.model_validate(user),
+    )
 
 
 @router.post("/refresh", response_model=Token)
+@handle_api_error("トークン更新")
 async def refresh_token(refresh_data: RefreshTokenRequest, db: AsyncSession = db_dependency) -> Any:
     """トークン更新
 
     リフレッシュトークンを使用して新しいアクセストークンを取得
     """
-    try:
-        # リフレッシュトークン検証
-        payload = await security_manager.verify_token(refresh_data.refresh_token)
+    # リフレッシュトークン検証
+    payload = await security_manager.verify_token(refresh_data.refresh_token)
 
-        # トークンタイプチェック
-        if payload.get("type") != "refresh":
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="無効なトークンタイプです",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-
-        # ユーザー取得
-        from app.crud.user import user_crud
-
-        user_id_raw = payload.get("sub")
-        if user_id_raw is None or not isinstance(user_id_raw, str):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="無効なユーザーIDです",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-
-        user_id: str = user_id_raw
-        user = await user_crud.get(db, id=user_id)
-
-        if not user or not user.can_login:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="無効なユーザーです",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-
-        # 古いリフレッシュトークンをブラックリスト
-        await security_manager.blacklist_token(refresh_data.refresh_token)
-
-        # 新しいトークン生成
-        access_token_expires = timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
-        new_access_token = security_manager.create_access_token(
-            data={"sub": str(user.id)}, expires_delta=access_token_expires
-        )
-
-        new_refresh_token = security_manager.create_refresh_token(str(user.id))
-
-        return Token(
-            access_token=new_access_token,
-            token_type=TOKEN_TYPE_BEARER,
-            expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-            refresh_token=new_refresh_token,
-            user=UserResponse.model_validate(user),
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        import logging
-
-        logger = logging.getLogger(__name__)
-        logger.error(f"トークン更新エラー: {e}")
+    # トークンタイプチェック
+    if payload.get("type") != "refresh":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="無効なリフレッシュトークンです",
+            detail="無効なトークンタイプです",
             headers={"WWW-Authenticate": "Bearer"},
-        ) from e
+        )
+
+    # ユーザー取得
+    from app.crud.user import user_crud
+
+    user_id_raw = payload.get("sub")
+    if user_id_raw is None or not isinstance(user_id_raw, str):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="無効なユーザーIDです",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    user_id: str = user_id_raw
+    user = await user_crud.get(db, id=user_id)
+
+    if not user or not user.can_login:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="無効なユーザーです",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # 古いリフレッシュトークンをブラックリスト
+    await security_manager.blacklist_token(refresh_data.refresh_token)
+
+    # 新しいトークン生成
+    access_token_expires = timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
+    new_access_token = security_manager.create_access_token(
+        data={"sub": str(user.id)}, expires_delta=access_token_expires
+    )
+
+    new_refresh_token = security_manager.create_refresh_token(str(user.id))
+
+    return Token(
+        access_token=new_access_token,
+        token_type=TOKEN_TYPE_BEARER,
+        expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        refresh_token=new_refresh_token,
+        user=UserResponse.model_validate(user),
+    )
 
 
 @router.put("/password", response_model=AuthResponse)
+@handle_api_error("パスワード変更")
 async def change_password(
     password_change: PasswordChangeRequest,
     current_user: User = current_user_dependency,
@@ -227,34 +194,22 @@ async def change_password(
 
     現在のパスワードを確認してから新しいパスワードに変更
     """
-    try:
-        # 現在のパスワード確認
-        if not security_manager.verify_password(password_change.current_password, current_user.password_hash):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="現在のパスワードが正しくありません",
-            )
-
-        # 新しいパスワードのハッシュ化
-        new_password_hash = security_manager.get_password_hash(password_change.new_password)
-
-        # パスワード更新
-        from app.crud.user import user_crud
-
-        await user_crud.update_password(db, user=current_user, password_hash=new_password_hash)
-
-        return AuthResponse(success=True, message="パスワードが正常に変更されました", data=None)
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        import logging
-
-        logger = logging.getLogger(__name__)
-        logger.error(f"パスワード変更エラー: {e}")
+    # 現在のパスワード確認
+    if not security_manager.verify_password(password_change.current_password, current_user.password_hash):
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="パスワード変更中にエラーが発生しました"
-        ) from e
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="現在のパスワードが正しくありません",
+        )
+
+    # 新しいパスワードのハッシュ化
+    new_password_hash = security_manager.get_password_hash(password_change.new_password)
+
+    # パスワード更新
+    from app.crud.user import user_crud
+
+    await user_crud.update_password(db, user=current_user, password_hash=new_password_hash)
+
+    return AuthResponse(success=True, message="パスワードが正常に変更されました", data=None)
 
 
 @router.post("/logout", response_model=AuthResponse)
@@ -276,9 +231,6 @@ async def logout(
         return AuthResponse(success=True, message="正常にログアウトしました", data=None)
 
     except Exception as e:
-        import logging
-
-        logger = logging.getLogger(__name__)
         logger.error(f"ログアウトエラー: {e}")
         # ログアウトは失敗してもクライアント側でトークンを削除すれば実質的に成功
         return AuthResponse(success=True, message="ログアウトしました", data=None)

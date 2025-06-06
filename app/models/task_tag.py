@@ -65,15 +65,15 @@ class TaskTag(Base):
         return cls(task_id=task_id, tag_id=tag_id)
 
     def get_task_title(self) -> str | None:
-        """関連タスクのタイトルを取得（便利メソッド）"""
+        """関連タスクのタイトルを取得"""
         return self.task.title if self.task else None
 
     def get_tag_name(self) -> str | None:
-        """関連タグの名前を取得（便利メソッド）"""
+        """関連タグの名前を取得"""
         return self.tag.name if self.tag else None
 
     def get_tag_color(self) -> str | None:
-        """関連タグの色を取得（便利メソッド）"""
+        """関連タグの色を取得"""
         return self.tag.color if self.tag else None
 
     def is_task_completed(self) -> bool:

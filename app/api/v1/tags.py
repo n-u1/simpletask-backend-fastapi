@@ -54,9 +54,6 @@ async def get_tags(
     include_inactive: bool = Query(default=False, description="非アクティブタグを含める"),
 ) -> TagListResponse:
     """タグ一覧を取得"""
-    # ページネーション計算
-    skip = (page - 1) * per_page
-
     filters = TagFilters(is_active=is_active, colors=colors, has_tasks=has_tasks, min_task_count=None, search=search)
 
     sort_options = TagSortOptions(sort_by=sort_by, order=order)
@@ -65,8 +62,8 @@ async def get_tags(
         tag_list = await tag_service.get_tags(
             db,
             current_user.id,
-            skip=skip,
-            limit=per_page,
+            page=page,
+            per_page=per_page,
             filters=filters,
             sort_options=sort_options,
             include_inactive=include_inactive,

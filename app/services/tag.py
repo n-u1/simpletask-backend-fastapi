@@ -18,6 +18,7 @@ from app.schemas.tag import (
     TagSortOptions,
     TagUpdate,
 )
+from app.utils.pagination import calculate_pagination, create_pagination_result
 
 
 class TagService:
@@ -33,8 +34,10 @@ class TagService:
             return None
 
         # アクセス権限チェック
-        if tag.user_id != user_id:
-            raise PermissionError(ErrorMessages.TAG_ACCESS_DENIED)
+        from app.utils.permission import create_permission_checker
+
+        permission_checker = create_permission_checker(user_id)
+        permission_checker.check_tag_access(tag, include_inactive=include_inactive)
 
         return tag
 
@@ -43,23 +46,22 @@ class TagService:
         db: AsyncSession,
         user_id: UUID,
         *,
-        skip: int = 0,
-        limit: int = APIConstants.DEFAULT_PAGE_SIZE,
+        page: int = 1,
+        per_page: int = APIConstants.DEFAULT_PAGE_SIZE,
         filters: TagFilters | None = None,
         sort_options: TagSortOptions | None = None,
         include_inactive: bool = False,
     ) -> TagListResponse:
         """タグ一覧を取得"""
-        # 制限値チェック
-        limit = min(limit, APIConstants.MAX_PAGE_SIZE)
-        limit = max(limit, APIConstants.MIN_PAGE_SIZE)
+        # ページネーション計算
+        pagination_params = calculate_pagination(page, per_page)
 
         # タグ取得
         tags = await self.tag_crud.get_multi_by_user(
             db,
             user_id,
-            skip=skip,
-            limit=limit,
+            skip=pagination_params.skip,
+            limit=pagination_params.limit,
             filters=filters,
             sort_options=sort_options,
             include_inactive=include_inactive,
@@ -68,16 +70,15 @@ class TagService:
         # 総件数取得
         total = await self.tag_crud.count_by_user(db, user_id, filters, include_inactive=include_inactive)
 
-        # ページネーション計算
-        page = (skip // limit) + 1
-        total_pages = (total + limit - 1) // limit
+        # ページネーション結果作成
+        pagination_result = create_pagination_result(pagination_params.page, pagination_params.limit, total)
 
         return TagListResponse(
             tags=[TagResponse.model_validate(tag) for tag in tags],
-            total=total,
-            page=page,
-            per_page=limit,
-            total_pages=total_pages,
+            total=pagination_result.total,
+            page=pagination_result.page,
+            per_page=pagination_result.per_page,
+            total_pages=pagination_result.total_pages,
         )
 
     async def create_tag(self, db: AsyncSession, tag_in: TagCreate, user_id: UUID) -> Tag:
@@ -125,7 +126,7 @@ class TagService:
             deleted_tag = await self.tag_crud.delete(db, id=tag_id)
             return deleted_tag is not None
         else:
-            # ソフトデリート
+            # 論理削除
             await self.tag_crud.soft_delete(db, db_tag=tag)
             return True
 

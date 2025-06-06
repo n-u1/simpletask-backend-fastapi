@@ -215,62 +215,6 @@ class DatabaseConstants:
 
 
 # =============================================================================
-# エラーメッセージ定数
-# =============================================================================
-
-
-class ErrorMessages:
-    """エラーメッセージの定数"""
-
-    # 認証関連
-    INVALID_CREDENTIALS = "メールアドレスまたはパスワードが正しくありません"
-    USER_NOT_FOUND = "ユーザーが見つかりません"
-    USER_INACTIVE = "アカウントが無効化されています"
-    EMAIL_ALREADY_EXISTS = "このメールアドレスは既に登録されています"
-
-    # パスワード関連
-    PASSWORD_TOO_SHORT = f"パスワードは{UserConstants.PASSWORD_MIN_LENGTH}文字以上である必要があります"  # nosec B105 # noqa: S105
-    PASSWORD_TOO_LONG = f"パスワードは{UserConstants.PASSWORD_MAX_LENGTH}文字以内で入力してください"  # nosec B105 # noqa: S105
-    PASSWORD_NO_LETTERS = "パスワードには英字を含めてください"  # nosec B105 # noqa: S105
-    PASSWORD_NO_NUMBERS = "パスワードには数字を含めてください"  # nosec B105 # noqa: S105
-    PASSWORD_TOO_WEAK = "このパスワードは簡単すぎるため使用できません"  # nosec B105 # noqa: S105
-
-    # 表示名関連
-    DISPLAY_NAME_TOO_SHORT = f"表示名は{UserConstants.DISPLAY_NAME_MIN_LENGTH}文字以上で入力してください"
-    DISPLAY_NAME_TOO_LONG = f"表示名は{UserConstants.DISPLAY_NAME_MAX_LENGTH}文字以内で入力してください"
-    DISPLAY_NAME_INVALID_CHARS = "表示名に使用できない文字が含まれています"
-
-    # タスク関連
-    TASK_NOT_FOUND = "タスクが見つかりません"
-    TASK_TITLE_REQUIRED = "タスクタイトルは必須です"
-    TASK_TITLE_TOO_LONG = f"タスクタイトルは{TaskConstants.TITLE_MAX_LENGTH}文字以内で入力してください"
-    TASK_ACCESS_DENIED = "このタスクにアクセスする権限がありません"
-
-    # タグ関連
-    TAG_NOT_FOUND = "タグが見つかりません"
-    TAG_NAME_REQUIRED = "タグ名は必須です"
-    TAG_NAME_TOO_LONG = f"タグ名は{TagConstants.NAME_MAX_LENGTH}文字以内で入力してください"
-    TAG_NAME_DUPLICATE = "このタグ名は既に使用されています"
-    TAG_COLOR_INVALID = "有効なカラーコード（#RRGGBB形式）を入力してください"
-    TAG_ACCESS_DENIED = "このタグにアクセスする権限がありません"
-
-    # API関連
-    INVALID_PAGE_SIZE = (
-        f"ページサイズは{APIConstants.MIN_PAGE_SIZE}以上{APIConstants.MAX_PAGE_SIZE}以下で指定してください"
-    )
-    INVALID_SORT_FIELD = "指定されたソートフィールドは無効です"
-    INVALID_SORT_ORDER = "ソート順序は'asc'または'desc'を指定してください"
-
-    # 一般的なエラー
-    VALIDATION_ERROR = "入力値に誤りがあります"
-    SERVER_ERROR = "サーバーエラーが発生しました"
-    NOT_FOUND = "リソースが見つかりません"
-    UNAUTHORIZED = "認証が必要です"
-    FORBIDDEN = "アクセスが拒否されました"
-    RATE_LIMIT_EXCEEDED = "リクエスト制限を超過しました"
-
-
-# =============================================================================
 # レスポンスメッセージ定数
 # =============================================================================
 
@@ -362,6 +306,70 @@ def validate_image_url(url: str) -> bool:
 
     # 画像拡張子チェック
     return any(url.lower().endswith(ext) for ext in UserConstants.ALLOWED_IMAGE_EXTENSIONS)
+
+
+# =============================================================================
+# エラーメッセージ定数
+# =============================================================================
+
+
+class ErrorMessages:
+    """エラーメッセージの定数"""
+
+    # 認証関連
+    INVALID_CREDENTIALS = "メールアドレスまたはパスワードが正しくありません"
+    USER_NOT_FOUND = "ユーザーが見つかりません"
+    USER_INACTIVE = "アカウントが無効化されています"
+    EMAIL_ALREADY_EXISTS = "このメールアドレスは既に登録されています"
+
+    # パスワード関連
+    PASSWORD_TOO_SHORT = f"パスワードは{UserConstants.PASSWORD_MIN_LENGTH}文字以上である必要があります"  # nosec B105 # noqa: S105
+    PASSWORD_TOO_LONG = f"パスワードは{UserConstants.PASSWORD_MAX_LENGTH}文字以内で入力してください"  # nosec B105 # noqa: S105
+    PASSWORD_NO_LETTERS = "パスワードには英字を含めてください"  # nosec B105 # noqa: S105
+    PASSWORD_NO_NUMBERS = "パスワードには数字を含めてください"  # nosec B105 # noqa: S105
+    PASSWORD_TOO_WEAK = "このパスワードは簡単すぎるため使用できません"  # nosec B105 # noqa: S105
+
+    # 表示名関連
+    DISPLAY_NAME_TOO_SHORT = f"表示名は{UserConstants.DISPLAY_NAME_MIN_LENGTH}文字以上で入力してください"
+    DISPLAY_NAME_TOO_LONG = f"表示名は{UserConstants.DISPLAY_NAME_MAX_LENGTH}文字以内で入力してください"
+    DISPLAY_NAME_INVALID_CHARS = "表示名に使用できない文字が含まれています"
+
+    # タスク関連
+    TASK_NOT_FOUND = "タスクが見つかりません"
+    TASK_TITLE_REQUIRED = "タスクタイトルは必須です"
+    TASK_TITLE_TOO_LONG = f"タスクタイトルは{TaskConstants.TITLE_MAX_LENGTH}文字以内で入力してください"
+    TASK_ACCESS_DENIED = "このタスクにアクセスする権限がありません"
+
+    # タグ関連
+    TAG_NOT_FOUND = "タグが見つかりません"
+    TAG_NAME_REQUIRED = "タグ名は必須です"
+    TAG_NAME_TOO_LONG = f"タグ名は{TagConstants.NAME_MAX_LENGTH}文字以内で入力してください"
+    TAG_NAME_DUPLICATE = "このタグ名は既に使用されています"
+    TAG_COLOR_INVALID = "有効なカラーコード（#RRGGBB形式）を入力してください"
+    TAG_ACCESS_DENIED = "このタグにアクセスする権限がありません"
+
+    # API関連
+    INVALID_PAGE_SIZE = (
+        f"ページサイズは{APIConstants.MIN_PAGE_SIZE}以上{APIConstants.MAX_PAGE_SIZE}以下で指定してください"
+    )
+    INVALID_SORT_FIELD = "指定されたソートフィールドは無効です"
+    INVALID_SORT_ORDER = "ソート順序は'asc'または'desc'を指定してください"
+
+    # リソース関連（汎用）
+    RESOURCE_NOT_FOUND = "指定されたリソースが見つかりません"
+    RESOURCE_ACCESS_DENIED = "このリソースにアクセスする権限がありません"
+    INACTIVE_RESOURCE = "このリソースは無効化されています"
+
+    # ユーザープロフィール関連
+    PROFILE_ACCESS_DENIED = "他のユーザーのプロフィールにアクセスする権限がありません"
+
+    # 一般的なエラー
+    VALIDATION_ERROR = "入力値に誤りがあります"
+    SERVER_ERROR = "サーバーエラーが発生しました"
+    NOT_FOUND = "リソースが見つかりません"
+    UNAUTHORIZED = "認証が必要です"
+    FORBIDDEN = "アクセスが拒否されました"
+    RATE_LIMIT_EXCEEDED = "リクエスト制限を超過しました"
 
 
 # =============================================================================
