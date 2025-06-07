@@ -143,6 +143,8 @@ async def refresh_token(refresh_data: RefreshTokenRequest, db: AsyncSession = db
         )
 
     # ユーザー取得
+    from uuid import UUID
+
     from app.crud.user import user_crud
 
     user_id_raw = payload.get("sub")
@@ -153,8 +155,18 @@ async def refresh_token(refresh_data: RefreshTokenRequest, db: AsyncSession = db
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    user_id: str = user_id_raw
-    user = await user_crud.get(db, id=user_id)
+    user_id_str: str = user_id_raw
+
+    try:
+        user_id_uuid = UUID(user_id_str)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="無効なユーザーID形式です",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from None
+
+    user = await user_crud.get(db, id=user_id_uuid)
 
     if not user or not user.can_login:
         raise HTTPException(

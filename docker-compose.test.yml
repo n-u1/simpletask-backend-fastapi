@@ -1,0 +1,85 @@
+# テスト環境用のDocker Compose設定
+services:
+  # テスト用PostgreSQL
+  simpletask-backend-test-db:
+    image: postgres:17.5-alpine
+    container_name: simpletask-backend-test-db
+    environment:
+      POSTGRES_DB: simpletask_test
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432" # 本番用と異なるポート
+    volumes:
+      - test_postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d simpletask_test"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - test_network
+
+  # テスト用Redis
+  simpletask-backend-test-redis:
+    image: redis:7.4-alpine
+    container_name: simpletask-backend-test-redis
+    command: redis-server --appendonly yes --requirepass redis123
+    ports:
+      - "6380:6379" # 本番用と異なるポート
+    volumes:
+      - test_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redis123", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - test_network
+
+  # テスト実行用コンテナ
+  simpletask-backend-test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: simpletask-backend-test-runner
+    environment:
+      - ENVIRONMENT=testing
+      - DB_HOST=simpletask-backend-test-db
+      - DB_PORT=5432
+      - DB_NAME=simpletask_test
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - REDIS_HOST=simpletask-backend-test-redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=redis123
+      - REDIS_DB=1
+      - JWT_SECRET_KEY=test-secret-key-for-testing-minimum-32-characters
+      - LOG_LEVEL=WARNING
+      - DEBUG=False
+    volumes:
+      - .:/app
+      - /app/__pycache__
+    depends_on:
+      simpletask-backend-test-db:
+        condition: service_healthy
+      simpletask-backend-test-redis:
+        condition: service_healthy
+    networks:
+      - test_network
+    command: pytest
+    profiles:
+      - test
+
+volumes:
+  test_postgres_data:
+    driver: local
+  test_redis_data:
+    driver: local
+
+networks:
+  test_network:
+    driver: bridge
+    name: simpletask_backend_test_network

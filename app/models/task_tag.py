@@ -36,9 +36,9 @@ class TaskTag(Base):
     )
 
     # リレーション定義
-    task: Mapped["Task"] = relationship("Task", back_populates="task_tags", lazy="select")
+    task: Mapped["Task"] = relationship("Task", back_populates="task_tags", lazy="selectin")
 
-    tag: Mapped["Tag"] = relationship("Tag", back_populates="task_tags", lazy="select")
+    tag: Mapped["Tag"] = relationship("Tag", back_populates="task_tags", lazy="selectin")
 
     # 制約・インデックス定義
     __table_args__ = (

@@ -7,6 +7,8 @@ pytest-cov~=6.1.1
 pytest-mock~=3.14.1
 httpx~=0.28.1
 pydantic-factories~=1.17.3
+aiosqlite~=0.21.0
+greenlet~=3.2.3
 
 # Lint/Format関連
 ruff~=0.11.12
