@@ -1,11 +1,17 @@
-.PHONY: help check-python install format lint test test-cov test-auth test-crud test-integrity test-failed test-debug clean docker-build docker-up docker-down docker-test migrate env-check security generate-secrets all-checks
+.PHONY: help setup check-python install format lint test test-cov test-auth test-crud test-integrity test-failed test-debug clean docker-build docker-up docker-down docker-test migrate env-check security generate-secrets all-checks
 
 help: ## ヘルプを表示
 	@echo "利用可能なコマンド:"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
+# セットアップ関連
+setup: ## 初回環境セットアップ
+	@echo "🚀 初回環境セットアップを開始します..."
+	@chmod +x scripts/setup.sh
+	@./scripts/setup.sh
+
 check-python: ## Pythonバージョンチェック
-	@python --version | grep -q "Python 3.13" || (echo "❌ Python 3.13が必要です" && exit 1)
+	@python --version | grep -q "Python 3.13" || (echo "❌ Python 3.13.x が必要です" && exit 1)
 	@echo "✅ Python バージョンOK"
 
 install: ## 依存関係をインストール
@@ -60,6 +66,13 @@ docker-up: ## Docker環境を起動
 docker-down: ## Docker環境を停止
 	docker-compose down
 
+docker-restart: ## Docker環境を再起動
+	@$(MAKE) docker-down
+	@$(MAKE) docker-up
+
+docker-logs: ## Dockerログを表示
+	docker-compose logs -f
+
 docker-test: ## Docker環境でテスト実行
 	docker-compose exec simpletask-backend-api pytest tests/ -v
 
@@ -79,3 +92,18 @@ generate-secrets: ## 本番用秘密鍵生成
 
 # 総合チェック
 all-checks: lint test security ## 全チェックを実行
+
+# 開発フロー
+dev: docker-up ## 開発環境を起動
+	@echo "🚀 開発環境が起動しました"
+	@echo "📖 API仕様: http://localhost:8000/docs"
+	@echo "❤️  ヘルスチェック: http://localhost:8000/health"
+
+reset: ## 開発環境をリセット
+	@echo "⚠️  開発環境をリセットします（データも削除されます）"
+	@read -p "続行しますか？ [y/N]: " confirm && [ "$$confirm" = "y" ]
+	@$(MAKE) docker-down
+	@docker-compose down -v
+	@$(MAKE) clean
+	@echo "✅ 開発環境がリセットされました"
+	@echo "💡 再セットアップは 'make setup' を実行してください"
