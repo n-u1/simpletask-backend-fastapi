@@ -23,6 +23,23 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
+# ======================================
+# 1. カスタム例外クラスを追加
+# ======================================
+
+
+class DatabaseConnectionError(Exception):
+    """データベース接続関連のエラー"""
+
+    pass
+
+
+class DatabaseConfigurationError(Exception):
+    """データベース設定関連のエラー"""
+
+    pass
+
+
 class DatabaseManager:
     """データベース接続を管理するクラス
 
@@ -113,8 +130,10 @@ class DatabaseManager:
         if self._session_factory is None:
             self.create_session_factory()
 
-        # 型チェッカー対応：session_factoryは初期化済み
-        assert self._session_factory is not None
+        # 修正: assert文を適切な例外処理に変更
+        if self._session_factory is None:
+            raise DatabaseConnectionError("セッションファクトリが初期化されていません")
+
         async with self._session_factory() as session:
             try:
                 logger.debug("データベースセッションを作成しました")
@@ -137,8 +156,10 @@ class DatabaseManager:
             if self._engine is None:
                 self.create_engine()
 
-            # 型チェッカー対応：エンジンは初期化済み
-            assert self._engine is not None
+            # 修正: assert文を適切な例外処理に変更
+            if self._engine is None:
+                raise DatabaseConnectionError("データベースエンジンが初期化されていません")
+
             async with self._engine.begin() as conn:
                 result = await conn.execute(text("SELECT 1"))
                 result.scalar()
@@ -333,8 +354,10 @@ class DatabaseTransaction:
         if database_manager._session_factory is None:
             database_manager.create_session_factory()
 
-        # 型チェッカー対応：session_factoryは初期化済み
-        assert database_manager._session_factory is not None
+        # 修正: assert文を適切な例外処理に変更
+        if database_manager._session_factory is None:
+            raise DatabaseConnectionError("セッションファクトリが初期化されていません")
+
         self.session = database_manager._session_factory()
         return self.session
 
@@ -376,7 +399,9 @@ async def test_database_operations() -> None:
 
         # 接続テスト
         is_connected = await database_manager.check_connection()
-        assert is_connected, "データベース接続に失敗しました"
+        # 修正: assert文を適切な例外処理に変更
+        if not is_connected:
+            raise DatabaseConnectionError("データベース接続に失敗しました")
 
         # セッションテスト
         async for session in database_manager.get_session():
@@ -393,9 +418,12 @@ async def test_database_operations() -> None:
 
         logger.info("データベース操作テストが正常に完了しました")
 
-    except Exception as e:
+    except DatabaseConnectionError as e:
         logger.error(f"データベース操作テスト中にエラーが発生しました: {e}")
         raise
+    except Exception as e:
+        logger.error(f"データベース操作テスト中に予期しないエラーが発生しました: {e}")
+        raise DatabaseConnectionError(f"予期しないエラー: {e}") from e
 
 
 if __name__ == "__main__":

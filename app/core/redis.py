@@ -16,6 +16,25 @@ from app.core.constants import DatabaseConstants, SecurityConstants
 logger = logging.getLogger(__name__)
 
 
+# カスタム例外クラス
+class RedisConnectionError(Exception):
+    """Redis接続関連のエラー"""
+
+    pass
+
+
+class RedisCacheError(Exception):
+    """Redisキャッシュ関連のエラー"""
+
+    pass
+
+
+class RedisConfigurationError(Exception):
+    """Redis設定関連のエラー"""
+
+    pass
+
+
 class RedisManager:
     """Redis接続を管理するクラス
 
@@ -105,7 +124,10 @@ class RedisManager:
             if self._client is None:
                 self.create_client()
 
-            assert self._client is not None
+            # 修正: assert文を適切な例外処理に変更
+            if self._client is None:
+                raise RedisConnectionError("Redisクライアントが初期化されていません")
+
             await self._client.ping()
             logger.debug("Redis接続チェック: 正常")
             return True
@@ -125,7 +147,10 @@ class RedisManager:
             self.create_connection_pool()
 
         try:
-            assert self._pool is not None
+            # 修正: assert文を適切な例外処理に変更
+            if self._pool is None:
+                raise RedisConnectionError("Redis接続プールが初期化されていません")
+
             self._client = Redis(connection_pool=self._pool)
             logger.info("Redisクライアントが作成されました")
             return self._client
@@ -205,7 +230,10 @@ class RedisCache:
         if manager.client is None:
             manager.create_client()
 
-        assert manager.client is not None
+        # 修正: assert文を適切な例外処理に変更
+        if manager.client is None:
+            raise RedisConnectionError("Redisクライアントが初期化されていません")
+
         return manager.client
 
     async def get(self, key: str) -> str | None:
@@ -477,7 +505,9 @@ async def test_redis_operations() -> None:
         # 接続テスト
         manager = get_redis_manager()
         is_connected = await manager.ping()
-        assert is_connected, "Redis接続に失敗しました"
+        # 修正: assert文を適切な例外処理に変更
+        if not is_connected:
+            raise RedisConnectionError("Redis接続に失敗しました")
 
         # キャッシュテスト
         test_key = "test:cache"
@@ -486,7 +516,9 @@ async def test_redis_operations() -> None:
         # 設定・取得テスト
         await cache.set(test_key, test_value, expire=60)
         cached_value = await cache.get(test_key)
-        assert cached_value == test_value, f"キャッシュ値が一致しません: {cached_value}"
+        # 修正: assert文を適切な例外処理に変更
+        if cached_value != test_value:
+            raise RedisCacheError(f"キャッシュ値が一致しません: expected={test_value}, actual={cached_value}")
 
         # JSONキャッシュテスト
         json_test_key = "test:json"
@@ -494,7 +526,9 @@ async def test_redis_operations() -> None:
 
         await json_cache.set_json(json_test_key, json_test_value, expire=60)
         cached_json = await json_cache.get_json(json_test_key)
-        assert cached_json == json_test_value, f"JSONキャッシュ値が一致しません: {cached_json}"
+        # 修正: assert文を適切な例外処理に変更
+        if cached_json != json_test_value:
+            raise RedisCacheError(f"JSONキャッシュ値が一致しません: expected={json_test_value}, actual={cached_json}")
 
         # レート制限テスト
         test_ip = "127.0.0.1"
@@ -502,9 +536,15 @@ async def test_redis_operations() -> None:
         is_allowed2 = await rate_limiter.is_allowed(test_ip, limit=3, window=60)
         remaining_info = await rate_limiter.get_remaining(test_ip, limit=3)
 
-        assert is_allowed1, "1回目のレート制限チェックが失敗しました"
-        assert is_allowed2, "2回目のレート制限チェックが失敗しました"
-        assert remaining_info["remaining"] <= 3, f"残り回数が不正です: {remaining_info}"
+        # 修正: assert文を適切な例外処理に変更
+        if not is_allowed1:
+            raise RedisCacheError("1回目のレート制限チェックが失敗しました")
+
+        if not is_allowed2:
+            raise RedisCacheError("2回目のレート制限チェックが失敗しました")
+
+        if remaining_info["remaining"] > 3:  # 2回使ったので3以下になるはず
+            raise RedisCacheError(f"残り回数が不正です: {remaining_info}")
 
         # クリーンアップ
         await cache.delete(test_key)
@@ -512,9 +552,12 @@ async def test_redis_operations() -> None:
 
         logger.info("Redis操作テストが正常に完了しました")
 
-    except Exception as e:
+    except (RedisConnectionError, RedisCacheError) as e:
         logger.error(f"Redis操作テスト中にエラーが発生しました: {e}")
         raise
+    except Exception as e:
+        logger.error(f"Redis操作テスト中に予期しないエラーが発生しました: {e}")
+        raise RedisConnectionError(f"予期しないエラー: {e}") from e
 
 
 if __name__ == "__main__":
