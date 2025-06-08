@@ -174,7 +174,7 @@ fi
 
 # 8. データベースとRedisの初期化
 echo "🗄️  データベースサービスを起動しています..."
-docker-compose up -d db redis
+docker-compose up -d simpletask-backend-db simpletask-backend-redis
 
 # ヘルスチェック待機
 echo "⏳ データベースの起動を待機しています..."
@@ -182,7 +182,7 @@ MAX_RETRIES=30
 RETRY_COUNT=0
 
 while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    if docker-compose exec -T db pg_isready -U ${DB_USER:-postgres} > /dev/null 2>&1; then
+    if docker-compose exec -T simpletask-backend-db pg_isready -U ${DB_USER:-postgres} > /dev/null 2>&1; then
         echo "✅ データベースが利用可能になりました"
         break
     fi
@@ -194,15 +194,15 @@ done
 if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
     echo "⚠️  データベースの起動確認がタイムアウトしました"
     echo "💡 解決方法:"
-    echo "  1. docker-compose logs db でログ確認"
+    echo "  1. docker-compose logs simpletask-backend-db でログ確認"
     echo "  2. ポート5432が使用されていないか確認: lsof -i :5432"
     echo "  3. 手動でサービス確認: docker-compose ps"
 fi
 
-# 9. データベースマイグレーション（Alembicを使用している場合）
+# 9. データベースマイグレーション
 if [ -d "alembic" ] && [ -f "alembic.ini" ]; then
     echo "🔄 データベースマイグレーションを実行しています..."
-    if docker-compose exec -T app alembic upgrade head > /dev/null 2>&1; then
+    if docker-compose exec -T simpletask-backend-api alembic upgrade head > /dev/null 2>&1; then
         echo "✅ マイグレーションが完了しました"
     else
         echo "⚠️  マイグレーションをスキップします"
