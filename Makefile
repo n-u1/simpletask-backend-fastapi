@@ -14,13 +14,13 @@ check-python: ## Pythonバージョンチェック
 	@if [ -f ".python-version" ]; then \
 		REQUIRED_VERSION=$$(cat .python-version | tr -d '\n\r'); \
 	else \
-		REQUIRED_VERSION="3.13.3"; \
+		REQUIRED_VERSION="3.13.4"; \
 	fi; \
 	CURRENT_VERSION=$$(python3 --version 2>/dev/null | cut -d' ' -f2 || echo "not found"); \
 	if [ "$$CURRENT_VERSION" != "$$REQUIRED_VERSION" ]; then \
 		echo "❌ Python バージョンが一致しません"; \
 		echo "   現在: $$CURRENT_VERSION"; \
-		echo "   必要: $$REQUIRED_VERSION"; \
+		echo "   要求: $$REQUIRED_VERSION"; \
 		echo "💡 解決方法: make setup を実行してください"; \
 		exit 1; \
 	fi; \

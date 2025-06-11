@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# Python バージョンチェック
 check_python_version() {
     echo "🔍 Python バージョンを確認しています..."
 
@@ -9,7 +8,7 @@ check_python_version() {
         REQUIRED_VERSION=$(cat .python-version | tr -d '\n\r')
         echo "   要求バージョン: $REQUIRED_VERSION (.python-versionより)"
     else
-        REQUIRED_VERSION="3.13.3"
+        REQUIRED_VERSION="3.13.4"
         echo "   要求バージョン: $REQUIRED_VERSION (デフォルト)"
     fi
 
@@ -44,103 +43,145 @@ handle_pyenv_environment() {
             echo "✅ Python バージョン確認: $CURRENT_VERSION"
             return 0
         else
-            echo "⚠️  設定後も異なるバージョンが選択されています"
+            echo "⚠️  設定後も異なるバージョンが適用されています"
             echo "   現在: $CURRENT_VERSION, 期待: $required_version"
-            echo "💡 以下を確認してください:"
-            echo "   - pyenv which python3"
-            echo "   - pyenv version"
-            echo "   - echo \$PATH"
+            echo "   pyenv管理: $(pyenv which python3 2>/dev/null || echo 'エラー')"
+
+            # PATH問題の可能性を判定
+            if [[ "$(which python3)" != *".pyenv"* ]]; then
+                echo ""
+                show_pyenv_path_fix_guide "$required_version"
+            else
+                show_pyenv_troubleshooting
+            fi
+            exit 1
         fi
     else
         echo "❌ Python $required_version がpyenvにインストールされていません"
-        offer_pyenv_install "$required_version"
-    fi
-}
-
-# pyenvでのインストール提案
-offer_pyenv_install() {
-    local required_version="$1"
-
-    echo ""
-    echo "🤖 Python $required_version を自動でインストールしますか？ (y/N)"
-    echo "   ⚠️  インストールには数分かかる場合があります"
-
-    read -r response
-    if [[ "$response" =~ ^[Yy]$ ]]; then
-        echo ""
-        echo "📦 Python $required_version をインストールしています..."
-
-        # インストール可能かチェック
-        if ! pyenv install --list | grep -q "^\s*$required_version$"; then
-            echo "❌ エラー: Python $required_version が利用できません"
-            echo "💡 利用可能なバージョン確認: pyenv install --list | grep 3.13"
-            echo "💡 pyenvアップデート: pyenv update または brew upgrade pyenv"
-            exit 1
-        fi
-
-        # インストール実行
-        echo "   開始時刻: $(date)"
-        if pyenv install "$required_version"; then
-            pyenv local "$required_version"
-            echo "✅ Python $required_version のインストールが完了しました"
-            echo "   完了時刻: $(date)"
-
-            # インストール後の確認
-            CURRENT_VERSION=$(python3 --version 2>/dev/null | cut -d' ' -f2 || echo "unknown")
-            if [ "$CURRENT_VERSION" = "$required_version" ]; then
-                echo "✅ バージョン確認: $CURRENT_VERSION"
-                return 0
-            else
-                echo "⚠️  インストール後も期待したバージョンになっていません"
-                echo "   現在: $CURRENT_VERSION, 期待: $required_version"
-                troubleshoot_pyenv
-                exit 1
-            fi
-        else
-            echo "❌ エラー: Python $required_version のインストールに失敗しました"
-            echo "💡 トラブルシューティング:"
-            echo "   - ディスク容量確認: df -h"
-            echo "   - ログ確認: ~/.pyenv/versions/$required_version/build.log"
-            echo "   - 手動インストール: pyenv install $required_version -v"
-            exit 1
-        fi
-    else
-        echo ""
-        echo "❌ Python $required_version のインストールが必要です"
-        show_pyenv_manual_guide "$required_version"
+        offer_pyenv_install_guide "$required_version"
         exit 1
     fi
 }
 
-# pyenv環境でのトラブルシューティング
-troubleshoot_pyenv() {
+# pyenvのPATH設定修正ガイド
+show_pyenv_path_fix_guide() {
+    local required_version="$1"
+
+    echo "⚠️  pyenvのPATH設定に問題があります"
     echo ""
-    echo "🔧 pyenvトラブルシューティング:"
-    echo "1. シェル設定確認:"
-    echo "   echo \$PATH | grep pyenv"
-    echo "   pyenv --version"
+    echo "📋 現在の状況："
+    echo "   システムのpython3: $(which python3)"
+    echo "   pyenv管理のpython3: $(pyenv which python3 2>/dev/null || echo '設定されていません')"
+    echo "   現在のバージョン: $(python3 --version | cut -d' ' -f2)"
+    echo "   期待するバージョン: $required_version"
     echo ""
-    echo "2. 現在の設定確認:"
-    echo "   pyenv version"
-    echo "   pyenv which python3"
-    echo ""
-    echo "3. シェル再起動:"
-    echo "   exec \$SHELL"
-    echo ""
-    echo "4. pyenv初期化確認 (~/.bashrc または ~/.zshrc):"
-    echo "   export PATH=\"\$HOME/.pyenv/bin:\$PATH\""
-    echo "   eval \"\$(pyenv init --path)\""
-    echo "   eval \"\$(pyenv init -)\""
+
+    # シェル設定ファイルを特定
+    if [[ "$SHELL" == *"zsh"* ]]; then
+        CONFIG_FILE="$HOME/.zshrc"
+        SHELL_NAME="zsh"
+    elif [[ "$SHELL" == *"bash"* ]]; then
+        CONFIG_FILE="$HOME/.bashrc"
+        SHELL_NAME="bash"
+    else
+        CONFIG_FILE="$HOME/.profile"
+        SHELL_NAME="shell"
+    fi
+
+    # 既存設定の確認
+    if grep -q "pyenv init" "$CONFIG_FILE" 2>/dev/null; then
+        echo "ℹ️  $CONFIG_FILE に既存のpyenv設定が見つかりました："
+        echo ""
+        grep -n "pyenv" "$CONFIG_FILE" | sed 's/^/   /'
+        echo ""
+        echo "🤔 既存設定があるにも関わらず問題が発生しています"
+        echo ""
+        echo "💡 解決方法："
+        echo "   1. 新しいターミナルを開いて再実行してください"
+        echo "   2. または設定を手動で確認・修正してください"
+        echo ""
+        show_manual_pyenv_check "$CONFIG_FILE"
+    else
+        echo "💡 pyenvのPATH設定が $CONFIG_FILE に見つかりません"
+        echo ""
+        show_manual_pyenv_setup "$CONFIG_FILE" "$SHELL_NAME" "$required_version"
+    fi
 }
 
-# pyenv手動ガイド
-show_pyenv_manual_guide() {
+# pyenvインストールガイド
+offer_pyenv_install_guide() {
     local required_version="$1"
-    echo "🔧 手動でのインストール方法:"
+
+    echo ""
+    echo "📦 Python $required_version のインストールが必要です"
+    echo ""
+    echo "🔧 インストール方法："
     echo "   pyenv install $required_version"
     echo "   pyenv local $required_version"
     echo ""
-    echo "💡 インストール後、再度このスクリプトを実行してください"
+    echo "⏱️  インストールには数分かかる場合があります"
+    echo ""
+    echo "💡 インストール後、このスクリプトを再実行してください"
+}
+
+# 手動pyenv設定ガイド
+show_manual_pyenv_setup() {
+    local config_file="$1"
+    local shell_name="$2"
+    local required_version="$3"
+
+    echo "🔧 手動設定方法："
+    echo ""
+    echo "1. $config_file を編集："
+    echo "   # テキストエディタで開く（編集できれば何でも可）"
+    echo "   code $config_file          # VS Codeの場合"
+    echo "   nano $config_file          # ターミナルエディタの場合"
+    echo ""
+    echo "2. ファイルの末尾に以下を追加："
+    echo ""
+    echo "   # pyenv設定"
+    echo "   export PATH=\"\$HOME/.pyenv/bin:\$PATH\""
+    echo "   eval \"\$(pyenv init --path)\""
+    echo "   eval \"\$(pyenv init -)\""
+    echo ""
+    echo "3. 設定を適用："
+    echo "   source $config_file"
+    echo ""
+    echo "4. バージョン確認："
+    echo "   python3 --version  # $required_version と表示されるはず"
+    echo ""
+    echo "💡 設定後、スクリプトを再実行してください"
+}
+
+# pyenv設定確認ガイド
+show_manual_pyenv_check() {
+    local config_file="$1"
+
+    echo "🔍 設定確認方法："
+    echo ""
+    echo "1. 現在の設定確認："
+    echo "   cat $config_file | grep pyenv"
+    echo ""
+    echo "2. PATH確認："
+    echo "   echo \$PATH | grep pyenv"
+    echo ""
+    echo "3. pyenv動作確認："
+    echo "   pyenv version"
+    echo "   pyenv which python3"
+    echo ""
+    echo "4. 必要に応じて設定を修正："
+    echo "   code $config_file  # エディタで開いて確認・修正"
+}
+
+# pyenv環境でのトラブルシューティング
+show_pyenv_troubleshooting() {
+    echo ""
+    echo "🔧 問題の確認方法："
+    echo "   pyenv --version"
+    echo "   pyenv which python3"
+    echo "   echo \$PATH | grep pyenv"
+    echo ""
+    echo "💡 手動で設定を確認してください"
 }
 
 # 非pyenv環境での処理
@@ -211,10 +252,32 @@ show_python_install_guide() {
 ensure_python_version_file() {
     if [ ! -f ".python-version" ]; then
         echo "📝 .python-versionファイルを作成しています..."
-        echo "3.13.3" > .python-version
+        echo "3.13.4" > .python-version
         echo "✅ .python-versionファイルが作成されました"
+    else
+        # 既存ファイルのバージョンが古い場合は更新提案
+        CURRENT_FILE_VERSION=$(cat .python-version | tr -d '\n\r')
+        if [ "$CURRENT_FILE_VERSION" != "3.13.4" ]; then
+            echo "ℹ️  .python-versionファイル: $CURRENT_FILE_VERSION"
+            echo "💡 Python 3.13.4 が利用可能です"
+            echo ""
+            echo "🔄 3.13.4 に更新しますか？ (y/N)"
+            read -r response
+            if [[ "$response" =~ ^[Yy]$ ]]; then
+                echo "3.13.4" > .python-version
+                echo "✅ .python-versionを3.13.4に更新しました"
+            else
+                echo "ℹ️  現在のバージョン($CURRENT_FILE_VERSION)を維持します"
+            fi
+        fi
     fi
 }
 
+echo "🚀 SimpleTask Backend Python環境セットアップ"
+echo ""
+
 ensure_python_version_file
 check_python_version
+
+echo ""
+echo "✅ Python環境の確認が完了しました!"

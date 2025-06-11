@@ -60,7 +60,7 @@ Python を使ったモダンなバックエンド開発を行う個人プロジ�
 
 ### 前提条件
 
-- **Python 3.13.3**
+- **Python 3.13.4**
 - **Docker & Docker Compose**
 - **Git**
 - **pyenv**
@@ -98,7 +98,7 @@ docker-compose up -d
 
 ### トラブルシューティング
 
-**Python 3.13 エラー** → `pyenv install 3.13 && pyenv local 3.13`  
+**Python バージョンエラー** → `pyenv install 3.13.4 && pyenv local 3.13.4`  
 **Docker エラー** → [Docker Desktop](https://docs.docker.com/get-docker/) をインストール  
 **ポート 8000 エラー** → `lsof -i :8000` で使用中プロセス確認  
 **その他** → `make docker-logs` でログ確認

@@ -1,4 +1,6 @@
-FROM python:3.13-slim AS base
+# .python-versionファイルの設定と同じバージョンを指定
+ARG PYTHON_VERSION=3.13.4
+FROM python:${PYTHON_VERSION}-slim AS base
 
 # システム依存関係のインストール
 # hadolint ignore=DL3008
