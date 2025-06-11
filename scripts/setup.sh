@@ -143,7 +143,7 @@ offer_pyenv_install_guide() {
     echo ""
     echo "📦 Python $required_version のインストールが必要です"
     echo ""
-    echo "🔧 インストールと設定："
+    echo "🔧 インストール・設定コマンド："
     echo "   pyenv install $required_version"
     echo "   pyenv local $required_version"
     echo ""
@@ -430,44 +430,6 @@ if ! docker-compose build; then
     exit 1
 fi
 
-# 8. データベースとRedisの初期化
-echo "🗄️  データベースサービスを起動しています..."
-docker-compose up -d simpletask-backend-db simpletask-backend-redis
-
-# ヘルスチェック待機
-echo "⏳ データベースの起動を待機しています..."
-MAX_RETRIES=30
-RETRY_COUNT=0
-
-while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    if docker-compose exec -T simpletask-backend-db pg_isready -U ${DB_USER:-postgres} > /dev/null 2>&1; then
-        echo "✅ データベースが利用可能になりました"
-        break
-    fi
-    echo "   待機中... ($((RETRY_COUNT + 1))/$MAX_RETRIES)"
-    sleep 2
-    RETRY_COUNT=$((RETRY_COUNT + 1))
-done
-
-if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
-    echo "⚠️  データベースの起動確認がタイムアウトしました"
-    echo "💡 解決方法:"
-    echo "  1. docker-compose logs simpletask-backend-db でログ確認"
-    echo "  2. ポート5432が使用されていないか確認: lsof -i :5432"
-    echo "  3. 手動でサービス確認: docker-compose ps"
-fi
-
-# 9. データベースマイグレーション
-if [ -d "alembic" ] && [ -f "alembic.ini" ]; then
-    echo "🔄 データベースマイグレーションを実行しています..."
-    if docker-compose exec -T simpletask-backend-api alembic upgrade head > /dev/null 2>&1; then
-        echo "✅ マイグレーションが完了しました"
-    else
-        echo "⚠️  マイグレーションをスキップします"
-        echo "💡 アプリケーション起動後に make migrate を実行してください"
-    fi
-fi
-
 echo ""
 echo "🎉 セットアップが完了しました！"
 echo ""
@@ -478,9 +440,9 @@ echo "  仮想環境: $(pwd)/venv"
 echo "  環境設定: .env (開発用設定)"
 echo ""
 echo "🚀 次のステップ:"
-echo "1. VSCodeでプロジェクトを開く: code ."
-echo "2. 推奨拡張機能をインストール (Ctrl+Shift+P → 'Extensions: Show Recommended Extensions')"
-echo "3. make docker-up でアプリケーションを起動"
+echo "1. make docker-up でアプリケーションを起動"
+echo "2. VSCodeでプロジェクトを開く: code ."
+echo "3. 推奨拡張機能をインストール (Ctrl+Shift+P → 'Extensions: Show Recommended Extensions')"
 echo "4. http://localhost:8000/docs でAPI仕様を確認"
 echo "5. http://localhost:8000/health でヘルスチェック"
 echo ""

@@ -27,41 +27,41 @@ check-python: ## Pythonバージョンチェック
 	echo "✅ Python バージョンOK ($$CURRENT_VERSION)"
 
 install: ## 依存関係をインストール
-	pip install -r requirements/dev.txt
-	pre-commit install
+	./venv/bin/pip install -r requirements/dev.txt
+	./venv/bin/pre-commit install
 
 format: ## コードをフォーマット
-	ruff format app/ tests/
-	ruff --fix app/ tests/
+	./venv/bin/ruff format app/ tests/
+	./venv/bin/ruff --fix app/ tests/
 
 lint: ## Lintチェックを実行
-	ruff check app/ tests/
-	mypy app/
-	bandit -r app/
+	./venv/bin/ruff check app/ tests/
+	./venv/bin/mypy app/
+	./venv/bin/bandit -r app/
 
 # 基本テストコマンド
 test: ## 全テストを実行
-	pytest tests/ -v
+	./venv/bin/pytest tests/ -v
 
 test-cov: ## カバレッジ付きテストを実行
-	pytest tests/ --cov=app --cov-report=html --cov-report=term-missing
+	./venv/bin/pytest tests/ --cov=app --cov-report=html --cov-report=term-missing
 
 # 個別テストカテゴリ
 test-auth: ## 認証関連テストのみ実行
-	pytest tests/test_auth.py -v
+	./venv/bin/pytest tests/test_auth.py -v
 
 test-crud: ## CRUD操作テストのみ実行
-	pytest tests/test_tasks_crud.py tests/test_tags_crud.py -v
+	./venv/bin/pytest tests/test_tasks_crud.py tests/test_tags_crud.py -v
 
 test-integrity: ## データ整合性テストのみ実行
-	pytest tests/test_data_integrity.py -v
+	./venv/bin/pytest tests/test_data_integrity.py -v
 
 # デバッグ・開発用
 test-failed: ## 前回失敗したテストのみ再実行
-	pytest tests/ --lf -v
+	./venv/bin/pytest tests/ --lf -v
 
 test-debug: ## デバッグモードでテスト実行
-	pytest tests/ -v -s --tb=long
+	./venv/bin/pytest tests/ -v -s --tb=long
 
 clean: ## キャッシュファイルを削除
 	find . -type f -name "*.pyc" -delete
@@ -96,8 +96,8 @@ env-check: ## 環境変数チェック
 	./scripts/env-check.sh
 
 security: ## セキュリティチェック
-	pip-audit
-	bandit -r app/
+	./venv/bin/pip-audit
+	./venv/bin/bandit -r app/
 
 generate-secrets: ## 本番用秘密鍵生成
 	./scripts/generate-secrets.sh
@@ -109,7 +109,7 @@ all-checks: lint test security ## 全チェックを実行
 dev: docker-up ## 開発環境を起動
 	@echo "🚀 開発環境が起動しました"
 	@echo "📖 API仕様: http://localhost:8000/docs"
-	@echo "❤️  ヘルスチェック: http://localhost:8000/health"
+	@echo "❤️ ヘルスチェック: http://localhost:8000/health"
 
 reset: ## 開発環境をリセット
 	@echo "⚠️  開発環境をリセットします（データも削除されます）"
