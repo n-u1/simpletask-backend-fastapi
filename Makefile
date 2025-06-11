@@ -11,8 +11,20 @@ setup: ## 初回環境セットアップ
 	@./scripts/setup.sh
 
 check-python: ## Pythonバージョンチェック
-	@python --version | grep -q "Python 3.13" || (echo "❌ Python 3.13.x が必要です" && exit 1)
-	@echo "✅ Python バージョンOK"
+	@if [ -f ".python-version" ]; then \
+		REQUIRED_VERSION=$$(cat .python-version | tr -d '\n\r'); \
+	else \
+		REQUIRED_VERSION="3.13.3"; \
+	fi; \
+	CURRENT_VERSION=$$(python3 --version 2>/dev/null | cut -d' ' -f2 || echo "not found"); \
+	if [ "$$CURRENT_VERSION" != "$$REQUIRED_VERSION" ]; then \
+		echo "❌ Python バージョンが一致しません"; \
+		echo "   現在: $$CURRENT_VERSION"; \
+		echo "   必要: $$REQUIRED_VERSION"; \
+		echo "💡 解決方法: make setup を実行してください"; \
+		exit 1; \
+	fi; \
+	echo "✅ Python バージョンOK ($$CURRENT_VERSION)"
 
 install: ## 依存関係をインストール
 	pip install -r requirements/dev.txt

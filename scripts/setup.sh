@@ -1,241 +1,232 @@
 #!/bin/bash
 
-# SimpleTask Backend セットアップスクリプト
+# Python バージョンチェック
+check_python_version() {
+    echo "🔍 Python バージョンを確認しています..."
 
-set -e
+    # .python-versionファイルから要求バージョンを取得
+    if [ -f ".python-version" ]; then
+        REQUIRED_VERSION=$(cat .python-version | tr -d '\n\r')
+        echo "   要求バージョン: $REQUIRED_VERSION (.python-versionより)"
+    else
+        REQUIRED_VERSION="3.13.3"
+        echo "   要求バージョン: $REQUIRED_VERSION (デフォルト)"
+    fi
 
-echo "🚀 SimpleTask Backend セットアップを開始します..."
+    # pyenvの存在確認
+    if command -v pyenv &> /dev/null; then
+        handle_pyenv_environment "$REQUIRED_VERSION"
+    else
+        handle_non_pyenv_environment "$REQUIRED_VERSION"
+    fi
+}
 
-# 関数定義
-check_command() {
-    if ! command -v "$1" &> /dev/null; then
-        echo "❌ エラー: $1 がインストールされていません"
-        echo "💡 インストール方法:"
-        case "$1" in
-            "docker")
-                echo "   https://docs.docker.com/get-docker/"
-                ;;
-            "docker-compose")
-                echo "   https://docs.docker.com/compose/install/"
-                ;;
-            "git")
-                echo "   sudo apt-get install git (Ubuntu/Debian)"
-                echo "   brew install git (macOS)"
-                ;;
-        esac
+# pyenv環境での処理
+handle_pyenv_environment() {
+    local required_version="$1"
+
+    echo "🔧 pyenv環境を検出しました"
+
+    # pyenvに要求バージョンがインストールされているかチェック
+    if pyenv versions --bare | grep -q "^${required_version}$"; then
+        echo "✅ Python $required_version はpyenvにインストール済みです"
+
+        # .python-versionファイルに基づいてローカル設定
+        if [ -f ".python-version" ]; then
+            echo "📝 .python-versionファイルに基づいてローカル設定を適用しています..."
+            pyenv local "$required_version"
+        fi
+
+        # 現在のPythonバージョンを確認
+        CURRENT_VERSION=$(python3 --version 2>/dev/null | cut -d' ' -f2 || echo "unknown")
+
+        if [ "$CURRENT_VERSION" = "$required_version" ]; then
+            echo "✅ Python バージョン確認: $CURRENT_VERSION"
+            return 0
+        else
+            echo "⚠️  設定後も異なるバージョンが選択されています"
+            echo "   現在: $CURRENT_VERSION, 期待: $required_version"
+            echo "💡 以下を確認してください:"
+            echo "   - pyenv which python3"
+            echo "   - pyenv version"
+            echo "   - echo \$PATH"
+        fi
+    else
+        echo "❌ Python $required_version がpyenvにインストールされていません"
+        offer_pyenv_install "$required_version"
+    fi
+}
+
+# pyenvでのインストール提案
+offer_pyenv_install() {
+    local required_version="$1"
+
+    echo ""
+    echo "🤖 Python $required_version を自動でインストールしますか？ (y/N)"
+    echo "   ⚠️  インストールには数分かかる場合があります"
+
+    read -r response
+    if [[ "$response" =~ ^[Yy]$ ]]; then
+        echo ""
+        echo "📦 Python $required_version をインストールしています..."
+
+        # インストール可能かチェック
+        if ! pyenv install --list | grep -q "^\s*$required_version$"; then
+            echo "❌ エラー: Python $required_version が利用できません"
+            echo "💡 利用可能なバージョン確認: pyenv install --list | grep 3.13"
+            echo "💡 pyenvアップデート: pyenv update または brew upgrade pyenv"
+            exit 1
+        fi
+
+        # インストール実行
+        echo "   開始時刻: $(date)"
+        if pyenv install "$required_version"; then
+            pyenv local "$required_version"
+            echo "✅ Python $required_version のインストールが完了しました"
+            echo "   完了時刻: $(date)"
+
+            # インストール後の確認
+            CURRENT_VERSION=$(python3 --version 2>/dev/null | cut -d' ' -f2 || echo "unknown")
+            if [ "$CURRENT_VERSION" = "$required_version" ]; then
+                echo "✅ バージョン確認: $CURRENT_VERSION"
+                return 0
+            else
+                echo "⚠️  インストール後も期待したバージョンになっていません"
+                echo "   現在: $CURRENT_VERSION, 期待: $required_version"
+                troubleshoot_pyenv
+                exit 1
+            fi
+        else
+            echo "❌ エラー: Python $required_version のインストールに失敗しました"
+            echo "💡 トラブルシューティング:"
+            echo "   - ディスク容量確認: df -h"
+            echo "   - ログ確認: ~/.pyenv/versions/$required_version/build.log"
+            echo "   - 手動インストール: pyenv install $required_version -v"
+            exit 1
+        fi
+    else
+        echo ""
+        echo "❌ Python $required_version のインストールが必要です"
+        show_pyenv_manual_guide "$required_version"
         exit 1
     fi
 }
 
-# 必要なコマンドの存在確認
-echo "🔍 必要なツールの確認..."
-check_command "python3"
-check_command "docker"
-check_command "docker-compose"
-check_command "git"
-
-# Python バージョンチェック
-# 3.13.x (任意のパッチバージョン) を許可、3.14以降は不許可
-PYTHON_VERSION=$(python3 --version | cut -d' ' -f2)
-REQUIRED_VERSION="3.13"
-
-if [[ ! "$PYTHON_VERSION" =~ ^3\.13\. ]]; then
-    echo "❌ エラー: Python 3.13.x が必要です（パッチバージョンは任意）"
-    echo "現在のバージョン: $PYTHON_VERSION"
-    echo "💡 解決方法:"
-    echo "1. pyenv install 3.13"
-    echo "2. pyenv local 3.13"
-    echo "3. または python3.13 -m venv venv"
+# pyenv環境でのトラブルシューティング
+troubleshoot_pyenv() {
     echo ""
-    echo "📝 例: 3.13.0, 3.13.1, 3.13.15 などは全て使用可能"
-    exit 1
-fi
+    echo "🔧 pyenvトラブルシューティング:"
+    echo "1. シェル設定確認:"
+    echo "   echo \$PATH | grep pyenv"
+    echo "   pyenv --version"
+    echo ""
+    echo "2. 現在の設定確認:"
+    echo "   pyenv version"
+    echo "   pyenv which python3"
+    echo ""
+    echo "3. シェル再起動:"
+    echo "   exec \$SHELL"
+    echo ""
+    echo "4. pyenv初期化確認 (~/.bashrc または ~/.zshrc):"
+    echo "   export PATH=\"\$HOME/.pyenv/bin:\$PATH\""
+    echo "   eval \"\$(pyenv init --path)\""
+    echo "   eval \"\$(pyenv init -)\""
+}
 
-echo "✅ Python バージョン確認: $PYTHON_VERSION"
+# pyenv手動ガイド
+show_pyenv_manual_guide() {
+    local required_version="$1"
+    echo "🔧 手動でのインストール方法:"
+    echo "   pyenv install $required_version"
+    echo "   pyenv local $required_version"
+    echo ""
+    echo "💡 インストール後、再度このスクリプトを実行してください"
+}
 
-# OS 検出（sedコマンドの引数調整用）
-OS="$(uname -s)"
+# 非pyenv環境での処理
+handle_non_pyenv_environment() {
+    local required_version="$1"
 
-# 1. .env ファイル作成
-if [ ! -f .env ]; then
-    if [ ! -f .env.example ]; then
-        echo "❌ エラー: .env.example ファイルが見つかりません"
-        echo "💡 プロジェクトルートで実行していることを確認してください"
+    echo "ℹ️  pyenvが検出されませんでした"
+
+    # Pythonコマンドの存在確認
+    if ! command -v python3 &> /dev/null; then
+        echo "❌ エラー: python3 コマンドが見つかりません"
+        show_python_install_guide "$required_version"
         exit 1
     fi
 
-    echo "📝 .env ファイルを作成しています..."
-    cp .env.example .env
+    # 現在のバージョン取得・チェック
+    CURRENT_VERSION=$(python3 --version 2>/dev/null | cut -d' ' -f2 || echo "unknown")
 
-    # 開発環境用の安全な初期値を設定
-    echo "🔑 開発環境用のランダム値を生成しています..."
-
-    # ランダムなJWT秘密鍵を生成（開発用）
-    JWT_SECRET=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
-
-    # ランダムなパスワードを生成（開発用）
-    DB_PASSWORD=$(python3 -c "import secrets; print('dev_db_' + secrets.token_urlsafe(16))")
-    REDIS_PASSWORD=$(python3 -c "import secrets; print('dev_redis_' + secrets.token_urlsafe(16))")
-
-    # プレースホルダーを実際の値に置換（OS別対応）
-    if [[ "$OS" == "Darwin" ]]; then
-        sed -i '' "s/CHANGE_ME_GENERATE_RANDOM_SECRET_KEY_MINIMUM_32_CHARS/${JWT_SECRET}/" .env
-        sed -i '' "s/CHANGE_ME_STRONG_PASSWORD/${DB_PASSWORD}/" .env
-        sed -i '' "s/CHANGE_ME_REDIS_PASSWORD/${REDIS_PASSWORD}/" .env
-    else
-        sed -i "s/CHANGE_ME_GENERATE_RANDOM_SECRET_KEY_MINIMUM_32_CHARS/${JWT_SECRET}/" .env
-        sed -i "s/CHANGE_ME_STRONG_PASSWORD/${DB_PASSWORD}/" .env
-        sed -i "s/CHANGE_ME_REDIS_PASSWORD/${REDIS_PASSWORD}/" .env
+    if [ "$CURRENT_VERSION" != "$required_version" ]; then
+        echo "❌ エラー: Python バージョンが一致しません"
+        echo "   現在のバージョン: $CURRENT_VERSION"
+        echo "   必要なバージョン: $required_version (完全一致)"
+        echo ""
+        show_python_install_guide "$required_version"
+        exit 1
     fi
 
-    echo "✅ .env ファイルが作成されました（開発用ランダム値設定済み）"
-    echo "⚠️  本番環境では必ず強力なパスワードに変更してください"
-else
-    echo "ℹ️  .env ファイルは既に存在します。"
-fi
+    echo "✅ Python バージョン確認: $CURRENT_VERSION"
+}
 
-# 2. 環境変数チェック
-echo "🔍 環境変数をチェックしています..."
-source .env
+# 非pyenv環境でのインストールガイド
+show_python_install_guide() {
+    local required_version="$1"
 
-# 必須変数の存在確認
-MISSING_VARS=()
-[ -z "$DB_PASSWORD" ] && MISSING_VARS+=("DB_PASSWORD")
-[ -z "$REDIS_PASSWORD" ] && MISSING_VARS+=("REDIS_PASSWORD")
-[ -z "$JWT_SECRET_KEY" ] && MISSING_VARS+=("JWT_SECRET_KEY")
+    echo "🔧 Python $required_version のインストール方法:"
+    echo ""
+    echo "1️⃣ pyenv使用（推奨 - 正確なバージョン指定が可能）:"
+    echo "   # pyenvインストール"
+    echo "   curl https://pyenv.run | bash"
+    echo "   # または"
+    echo "   brew install pyenv                    # macOS"
+    echo "   sudo apt install pyenv                # Ubuntu"
+    echo ""
+    echo "   # シェル設定追加 (~/.bashrc または ~/.zshrc)"
+    echo "   export PATH=\"\$HOME/.pyenv/bin:\$PATH\""
+    echo "   eval \"\$(pyenv init --path)\""
+    echo "   eval \"\$(pyenv init -)\""
+    echo ""
+    echo "   # シェル再起動後"
+    echo "   pyenv install $required_version"
+    echo "   pyenv local $required_version"
+    echo ""
+    echo "2️⃣ 公式インストーラー（正確なバージョン指定）:"
+    echo "   https://www.python.org/downloads/release/python-${required_version//./}/"
+    echo ""
+    echo "3️⃣ システムパッケージ（⚠️ パッチバージョンは保証されません）:"
+    echo "   # Ubuntu/Debian - 利用可能な最新3.13.xがインストールされます"
+    echo "   sudo apt update"
+    echo "   sudo apt install python3.13 python3.13-venv python3.13-dev"
+    echo "   # 必須確認: python3.13 --version"
+    echo "   # $required_version でない場合は他の方法を検討してください"
+    echo ""
+    echo "   # macOS (Homebrew) - Homebrew管理の最新3.13.xがインストールされます"
+    echo "   brew install python@3.13"
+    echo "   # 必須確認: /opt/homebrew/bin/python3.13 --version"
+    echo "   # $required_version でない場合は他の方法を検討してください"
+    echo ""
+    echo "4️⃣ Docker環境使用（Pythonインストール不要）:"
+    echo "   make docker-dev    # 開発用コンテナで作業"
+    echo ""
+    echo "⚠️  重要な注意事項:"
+    echo "   - パッケージマネージャーではパッチバージョン（$required_version）を指定できません"
+    echo "   - 完全一致が必要な場合は、pyenvまたは公式インストーラーを使用してください"
+    echo "   - システムパッケージを使用した場合は必ずバージョンを確認してください"
+    echo ""
+    echo "💡 チーム開発では pyenv の使用を強く推奨します（全員が同じバージョンを使用可能）"
+}
 
-if [ ${#MISSING_VARS[@]} -ne 0 ]; then
-    echo "❌ エラー: 以下の必須環境変数が設定されていません:"
-    printf '  %s\n' "${MISSING_VARS[@]}"
-    echo "💡 解決方法:"
-    echo "  1. .env ファイルを削除して再実行: rm .env && ./scripts/setup.sh"
-    echo "  2. または ./scripts/env-check.sh で詳細確認"
-    exit 1
-fi
-
-# 3. Python仮想環境の作成（ローカル開発用）
-if [ ! -d "venv" ]; then
-    echo "🐍 Python仮想環境を作成しています..."
-    python3 -m venv venv
-    echo "✅ 仮想環境が作成されました。"
-fi
-
-# 4. 依存関係のインストール（ローカル開発用）
-echo "📦 依存関係をインストールしています..."
-
-# 仮想環境のアクティベート確認
-if [[ "$VIRTUAL_ENV" == "" ]]; then
-    source venv/bin/activate
-fi
-
-# requirements ファイルの存在確認
-if [ ! -f "requirements/dev.txt" ]; then
-    echo "❌ エラー: requirements/dev.txt が見つかりません"
-    echo "💡 プロジェクト構成を確認してください"
-    exit 1
-fi
-
-pip install --upgrade pip
-pip install -r requirements/dev.txt
-
-# 5. Pre-commitフックの設定
-if command -v pre-commit &> /dev/null; then
-    echo "🔧 Pre-commitフックをセットアップしています..."
-    pre-commit install
-    echo "✅ Pre-commitフックが設定されました。"
-else
-    echo "⚠️  pre-commit がインストールされていません"
-    echo "💡 requirements/dev.txt に pre-commit が含まれているか確認してください"
-fi
-
-# 6. VSCode設定確認
-if [ -d ".vscode" ]; then
-    echo "✅ VSCode設定が検出されました。"
-else
-    echo "⚠️  VSCode設定フォルダが見つかりません。"
-    echo "💡 推奨設定を作成しますか？ (y/N)"
-    read -r response
-    if [[ "$response" =~ ^[Yy]$ ]]; then
-        mkdir -p .vscode
-        echo "📝 基本的なVSCode設定を作成しました。"
+# .python-versionファイルの存在確認
+ensure_python_version_file() {
+    if [ ! -f ".python-version" ]; then
+        echo "📝 .python-versionファイルを作成しています..."
+        echo "3.13.3" > .python-version
+        echo "✅ .python-versionファイルが作成されました"
     fi
-fi
+}
 
-# 7. Docker環境のビルド
-echo "🐳 Docker環境をビルドしています..."
-if ! docker-compose build; then
-    echo "❌ エラー: Docker環境のビルドに失敗しました"
-    echo "💡 解決方法:"
-    echo "  1. docker-compose.yml ファイルの存在確認"
-    echo "  2. Dockerデーモンの起動確認: docker version"
-    echo "  3. ディスク容量の確認: df -h"
-    exit 1
-fi
-
-# 8. データベースとRedisの初期化
-echo "🗄️  データベースサービスを起動しています..."
-docker-compose up -d simpletask-backend-db simpletask-backend-redis
-
-# ヘルスチェック待機
-echo "⏳ データベースの起動を待機しています..."
-MAX_RETRIES=30
-RETRY_COUNT=0
-
-while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    if docker-compose exec -T simpletask-backend-db pg_isready -U ${DB_USER:-postgres} > /dev/null 2>&1; then
-        echo "✅ データベースが利用可能になりました"
-        break
-    fi
-    echo "   待機中... ($((RETRY_COUNT + 1))/$MAX_RETRIES)"
-    sleep 2
-    RETRY_COUNT=$((RETRY_COUNT + 1))
-done
-
-if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
-    echo "⚠️  データベースの起動確認がタイムアウトしました"
-    echo "💡 解決方法:"
-    echo "  1. docker-compose logs simpletask-backend-db でログ確認"
-    echo "  2. ポート5432が使用されていないか確認: lsof -i :5432"
-    echo "  3. 手動でサービス確認: docker-compose ps"
-fi
-
-# 9. データベースマイグレーション
-if [ -d "alembic" ] && [ -f "alembic.ini" ]; then
-    echo "🔄 データベースマイグレーションを実行しています..."
-    if docker-compose exec -T simpletask-backend-api alembic upgrade head > /dev/null 2>&1; then
-        echo "✅ マイグレーションが完了しました"
-    else
-        echo "⚠️  マイグレーションをスキップします"
-        echo "💡 アプリケーション起動後に make migrate を実行してください"
-    fi
-fi
-
-echo ""
-echo "🎉 セットアップが完了しました！"
-echo ""
-echo "📋 環境構成:"
-echo "  Python: $PYTHON_VERSION"
-echo "  仮想環境: $(pwd)/venv"
-echo "  環境設定: .env (開発用設定)"
-echo ""
-echo "🚀 次のステップ:"
-echo "1. VSCodeでプロジェクトを開く: code ."
-echo "2. 推奨拡張機能をインストール (Ctrl+Shift+P → 'Extensions: Show Recommended Extensions')"
-echo "3. make docker-up でアプリケーションを起動"
-echo "4. http://localhost:8000/docs でAPI仕様を確認"
-echo "5. http://localhost:8000/health でヘルスチェック"
-echo ""
-echo "🛠️  開発コマンド:"
-echo "  make help       - 利用可能なコマンド一覧"
-echo "  make format     - コードフォーマット"
-echo "  make lint       - Lintチェック"
-echo "  make test       - テスト実行"
-echo "  make all-checks - 全チェック実行"
-echo ""
-echo "🔒 セキュリティコマンド:"
-echo "  ./scripts/env-check.sh     - 環境変数チェック"
-echo "  make generate-secrets      - 本番用秘密鍵生成"
-echo ""
-echo "💡 トラブルシューティング:"
-echo "  make docker-logs           - ログ確認"
-echo "  make docker-restart        - サービス再起動"
+ensure_python_version_file
+check_python_version
