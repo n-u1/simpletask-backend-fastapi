@@ -2,14 +2,11 @@
     "recommendations": [
         "ms-python.python",
         "ms-python.mypy-type-checker",
+        "ms-python.vscode-pylance",
         "astral-sh.ruff",
         "ms-azuretools.vscode-docker",
-        "eamodio.gitlens",
         "ms-vscode.vscode-json",
         "redhat.vscode-yaml",
-        "humao.rest-client",
-        "gruntfuggly.todo-tree",
-        "aaron-bond.better-comments",
-        "PKief.material-icon-theme"
+        "humao.rest-client"
     ]
 }
