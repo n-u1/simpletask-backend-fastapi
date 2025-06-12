@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.dependencies import get_user_repository
 from app.core.redis import rate_limiter
 from app.core.security import get_current_user, security_manager
 from app.models.user import User
@@ -95,7 +96,6 @@ async def login(
 
     メールアドレスとパスワードでログインし、アクセストークンを取得
     """
-    # ユーザー認証
     user = await auth_service.authenticate_user(
         db,
         email=form_data.username,  # OAuth2仕様ではusernameフィールドを使用
@@ -109,7 +109,6 @@ async def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # トークン生成
     access_token_expires = timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = security_manager.create_access_token(data={"sub": str(user.id)}, expires_delta=access_token_expires)
 
@@ -145,8 +144,6 @@ async def refresh_token(refresh_data: RefreshTokenRequest, db: AsyncSession = db
     # ユーザー取得
     from uuid import UUID
 
-    from app.crud.user import user_crud
-
     user_id_raw = payload.get("sub")
     if user_id_raw is None or not isinstance(user_id_raw, str):
         raise HTTPException(
@@ -166,7 +163,8 @@ async def refresh_token(refresh_data: RefreshTokenRequest, db: AsyncSession = db
             headers={"WWW-Authenticate": "Bearer"},
         ) from None
 
-    user = await user_crud.get(db, id=user_id_uuid)
+    user_repository = get_user_repository()
+    user = await user_repository.get_by_id(db, user_id_uuid)
 
     if not user or not user.can_login:
         raise HTTPException(
@@ -217,9 +215,8 @@ async def change_password(
     new_password_hash = security_manager.get_password_hash(password_change.new_password)
 
     # パスワード更新
-    from app.crud.user import user_crud
-
-    await user_crud.update_password(db, user=current_user, password_hash=new_password_hash)
+    user_repository = get_user_repository()
+    await user_repository.update_password(db, current_user, new_password_hash)
 
     return AuthResponse(success=True, message="パスワードが正常に変更されました", data=None)
 

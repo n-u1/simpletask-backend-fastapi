@@ -12,7 +12,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 from app.core.constants import ErrorMessages, UserConstants
 from app.models.base import Base
 
-# 循環インポート回避のための型チェック時のみインポート
+# 循環インポート回避のための型チェック時
 if TYPE_CHECKING:
     from app.models.tag import Tag  # noqa: F401
     from app.models.task import Task  # noqa: F401
@@ -35,7 +35,6 @@ class User(Base):
 
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False, comment="Argon2ハッシュ化されたパスワード")
 
-    # プロフィール情報
     display_name: Mapped[str] = mapped_column(
         String(UserConstants.DISPLAY_NAME_MAX_LENGTH), nullable=False, comment="表示名"
     )
@@ -44,23 +43,24 @@ class User(Base):
         String(UserConstants.AVATAR_URL_MAX_LENGTH), nullable=True, comment="アバター画像URL"
     )
 
-    # アカウント状態管理
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, comment="アカウント有効フラグ")
 
     is_verified: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False, comment="メールアドレス認証済みフラグ"
     )
 
-    # セキュリティ関連
-    last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, comment="最終ログイン日時")
+    last_login_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, comment="最終ログイン日時"
+    )
 
     failed_login_attempts: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, comment="連続ログイン失敗回数"
     )
 
-    locked_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, comment="アカウントロック解除日時")
+    locked_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, comment="アカウントロック解除日時"
+    )
 
-    # リレーション定義（遅延読み込み）
     tasks = relationship(
         "Task", back_populates="owner", cascade="all, delete-orphan", lazy="select", passive_deletes=True
     )
@@ -69,14 +69,12 @@ class User(Base):
         "Tag", back_populates="owner", cascade="all, delete-orphan", lazy="select", passive_deletes=True
     )
 
-    # 複合インデックス定義
     __table_args__ = (
         Index("ix_users_email_active", "email", "is_active"),
         Index("ix_users_active_verified", "is_active", "is_verified"),
         Index("ix_users_last_login", "last_login_at"),
     )
 
-    # バリデーション
     @validates("email")
     def validate_email(self, key: str, email: str) -> str:  # noqa: ARG002
         if not email:
@@ -113,7 +111,6 @@ class User(Base):
     def validate_failed_attempts(self, key: str, attempts: int) -> int:  # noqa: ARG002
         return max(0, attempts)  # 負の値を防ぐ
 
-    # ビジネスロジックメソッド
     def record_login_success(self) -> None:
         """ログイン成功を記録"""
         self.last_login_at = datetime.now(UTC)

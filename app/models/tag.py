@@ -12,7 +12,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 from app.core.constants import ErrorMessages, TagConstants, validate_color_code
 from app.models.base import Base
 
-# 循環インポート回避のための型チェック時のみインポート
+# 循環インポート回避のための型チェック時
 if TYPE_CHECKING:
     from app.models.task_tag import TaskTag  # noqa: F401
     from app.models.user import User  # noqa: F401
@@ -32,7 +32,6 @@ class Tag(Base):
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True, comment="タグの所有者ID"
     )
 
-    # 基本情報
     name: Mapped[str] = mapped_column(String(TagConstants.NAME_MAX_LENGTH), nullable=False, comment="タグ名")
 
     color: Mapped[str] = mapped_column(
@@ -46,23 +45,18 @@ class Tag(Base):
         String(TagConstants.DESCRIPTION_MAX_LENGTH), nullable=True, comment="タグの説明"
     )
 
-    # ステータス管理
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, comment="アクティブフラグ（ソフトデリート用）"
     )
 
-    # リレーション定義
     owner: Mapped["User"] = relationship("User", back_populates="tags", lazy="select")
 
     task_tags: Mapped[list["TaskTag"]] = relationship(
         "TaskTag", back_populates="tag", cascade="all, delete-orphan", lazy="select", passive_deletes=True
     )
 
-    # 制約・インデックス定義
     __table_args__ = (
-        # ユニーク制約: 同一ユーザー内でアクティブなタグ名は重複不可
         UniqueConstraint("user_id", "name", name="uq_tags_user_name"),
-        # 複合インデックス
         Index("ix_tags_user_name", "user_id", "name"),
         Index("ix_tags_user_active", "user_id", "is_active"),
         Index("ix_tags_active", "is_active"),

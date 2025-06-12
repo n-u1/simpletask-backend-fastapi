@@ -3,15 +3,19 @@
 ユーザーのプロフィール管理のビジネスロジックを提供
 """
 
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crud.user import user_crud
-from app.models.user import User
 from app.schemas.user import UserUpdate
 from app.utils.error_handler import handle_service_error
 from app.utils.permission import create_permission_checker
+
+# 循環インポート回避のための型チェック時
+if TYPE_CHECKING:
+    from app.models.user import User  # noqa: F401
 
 
 class UserService:
@@ -26,22 +30,21 @@ class UserService:
         self.user_crud = user_crud
 
     @handle_service_error("ユーザープロフィール取得")
-    async def get_user_profile(self, db: AsyncSession, user_id: UUID) -> User | None:
+    async def get_user_profile(self, db: AsyncSession, user_id: UUID) -> "User | None":
         """ユーザープロフィールを取得"""
         user: User | None = await self.user_crud.get(db, id=user_id)
         return user
 
     @handle_service_error("ユーザープロフィール更新")
-    async def update_user_profile(self, db: AsyncSession, user: User, user_update: UserUpdate) -> User:
+    async def update_user_profile(self, db: AsyncSession, user: "User", user_update: UserUpdate) -> "User":
         """ユーザープロフィールを更新"""
-        # 権限チェック
         permission_checker = create_permission_checker(user.id)
         permission_checker.check_user_profile_access(user)
 
         # 更新可能フィールドのみ抽出
         update_data = user_update.model_dump(exclude_unset=True)
 
-        # セキュリティ上、特定フィールドのみ更新可能
+        # 特定フィールドのみ更新可能（セキュリティー対策）
         allowed_fields = {"display_name", "avatar_url"}
         filtered_data = {k: v for k, v in update_data.items() if k in allowed_fields}
 
@@ -52,9 +55,8 @@ class UserService:
         return updated_user
 
     @handle_service_error("ユーザーアカウント削除")
-    async def delete_user_account(self, db: AsyncSession, user: User, *, permanent: bool = False) -> bool:
+    async def delete_user_account(self, db: AsyncSession, user: "User", *, permanent: bool = False) -> bool:
         """ユーザーアカウントを削除"""
-        # 権限チェック
         permission_checker = create_permission_checker(user.id)
         permission_checker.check_user_profile_access(user)
 

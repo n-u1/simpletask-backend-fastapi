@@ -127,9 +127,17 @@ class CRUDTask(CRUDBase[Task, TaskCreate, TaskUpdate]):
         # ステータス変更時の自動処理
         if "status" in update_data:
             if update_data["status"] == TaskStatus.DONE.value and not db_task.completed_at:
-                update_data["completed_at"] = datetime.now(UTC)
+                # Taskモデルのメソッドを使用
+                db_task.mark_completed()
+                update_data.pop("status", None)  # statusはmark_completed()で設定されるため削除
             elif update_data["status"] != TaskStatus.DONE.value and db_task.completed_at:
-                update_data["completed_at"] = None
+                # Taskモデルのメソッドを使用
+                db_task.mark_uncompleted()
+                if update_data["status"] != TaskStatus.TODO.value:
+                    db_task.status = update_data[
+                        "status"
+                    ]  # mark_uncompleted()はTODOにするため、別のステータスの場合は再設定
+                update_data.pop("status", None)  # statusは手動で設定したため削除
 
         # タスク更新
         for field, value in update_data.items():
@@ -149,13 +157,15 @@ class CRUDTask(CRUDBase[Task, TaskCreate, TaskUpdate]):
     @handle_db_operation("タスクステータス更新")
     async def update_status(self, db: AsyncSession, *, db_task: Task, status: TaskStatus) -> Task:
         """タスクのステータスのみ更新"""
-        db_task.status = status.value
-
-        # 完了時の自動処理
-        if status == TaskStatus.DONE and not db_task.completed_at:
-            db_task.completed_at = datetime.now(UTC)
-        elif status != TaskStatus.DONE and db_task.completed_at:
-            db_task.completed_at = None
+        # Taskモデルのメソッドを使用
+        if status == TaskStatus.DONE:
+            db_task.mark_completed()
+        elif db_task.status == TaskStatus.DONE.value and status.value != TaskStatus.DONE.value:
+            db_task.mark_uncompleted()
+            if status.value != TaskStatus.TODO.value:
+                db_task.status = status.value  # mark_uncompleted()はTODOにするため、別のステータスの場合は再設定
+        else:
+            db_task.status = status.value
 
         await db.commit()
         await db.refresh(db_task)
@@ -200,10 +210,8 @@ class CRUDTask(CRUDBase[Task, TaskCreate, TaskUpdate]):
         limit: int = APIConstants.DEFAULT_PAGE_SIZE,
     ) -> list[Task]:
         """ステータス別でタスクを取得"""
-        # UUIDの安全な変換
         safe_user_id = safe_uuid_convert(user_id, "ユーザーID")
 
-        # QueryBuilderを使用したクエリ構築
         builder = QueryBuilder(Task)
         builder.with_task_tags().filter_by_user(safe_user_id)
         builder.where(self.model.status == status.value)
@@ -219,12 +227,10 @@ class CRUDTask(CRUDBase[Task, TaskCreate, TaskUpdate]):
         self, db: AsyncSession, user_id: UUID, *, skip: int = 0, limit: int = APIConstants.DEFAULT_PAGE_SIZE
     ) -> list[Task]:
         """期限切れタスクを取得"""
-        # UUIDの安全な変換
         safe_user_id = safe_uuid_convert(user_id, "ユーザーID")
 
         now = datetime.now(UTC)
 
-        # QueryBuilderを使用したクエリ構築
         builder = QueryBuilder(Task)
         builder.with_task_tags().filter_by_user(safe_user_id)
         builder.where(
@@ -273,7 +279,6 @@ class CRUDTask(CRUDBase[Task, TaskCreate, TaskUpdate]):
             stmt = stmt.join(TaskTag, self.model.id == TaskTag.task_id)
 
             if filters.tag_ids:
-                # UUIDの安全な変換
                 safe_tag_ids = [safe_uuid_convert(tag_id, "タグID") for tag_id in filters.tag_ids]
                 stmt = stmt.where(TaskTag.tag_id.in_(safe_tag_ids))
 
@@ -304,7 +309,6 @@ class CRUDTask(CRUDBase[Task, TaskCreate, TaskUpdate]):
         self, db: AsyncSession, task_id: UUID, tag_ids: list[UUID], user_id: UUID
     ) -> None:
         """タスクとタグの関連付けを作成"""
-        # UUIDの安全な変換
         safe_task_id = safe_uuid_convert(task_id, "タスクID")
         safe_user_id = safe_uuid_convert(user_id, "ユーザーID")
         safe_tag_ids = [safe_uuid_convert(tag_id, "タグID") for tag_id in tag_ids]
@@ -331,7 +335,6 @@ class CRUDTask(CRUDBase[Task, TaskCreate, TaskUpdate]):
         self, db: AsyncSession, task_id: UUID, tag_ids: list[UUID], user_id: UUID
     ) -> None:
         """タスクとタグの関連付けを更新"""
-        # UUIDの安全な変換
         safe_task_id = safe_uuid_convert(task_id, "タスクID")
         safe_user_id = safe_uuid_convert(user_id, "ユーザーID")
 

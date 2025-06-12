@@ -31,7 +31,7 @@ class CRUDUser(CRUDBase[User, UserCreate, UserUpdate]):
         Returns:
             見つかった場合はユーザーインスタンス、見つからない場合はNone
         """
-        stmt = select(User).where(User.email == email.lower().strip())
+        stmt = select(self.model).where(self.model.email == email.lower().strip())
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -60,7 +60,7 @@ class CRUDUser(CRUDBase[User, UserCreate, UserUpdate]):
         }
 
         # ユーザー作成
-        db_user = User(**user_data)
+        db_user = self.model(**user_data)
         db.add(db_user)
         await db.commit()
         await db.refresh(db_user)

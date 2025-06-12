@@ -30,7 +30,7 @@ class Base(DeclarativeBase):
 
     全てのモデルはこのクラスを継承する
     - UUID主キー
-    - 作成・更新タイムスタンプ
+    - 作成・更新タイムスタンプ（タイムゾーン付き）
     - テーブル名自動生成
     """
 
@@ -42,11 +42,11 @@ class Base(DeclarativeBase):
     )
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=lambda: datetime.now(UTC), nullable=False, comment="作成日時（UTC）"
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False, comment="作成日時（UTC）"
     )
 
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime,
+        DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
         onupdate=lambda: datetime.now(UTC),
         nullable=False,

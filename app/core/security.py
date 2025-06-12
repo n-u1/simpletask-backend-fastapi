@@ -3,8 +3,9 @@
 JWT認証、Argon2パスワードハッシュ化、トークン管理を提供
 """
 
+import logging
 import uuid
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Optional
 
 import jwt
@@ -21,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.dependencies import get_user_repository
 from app.core.redis import cache
 from app.utils.jwt_helpers import (
     TOKEN_TYPE_ACCESS,
@@ -30,14 +32,14 @@ from app.utils.jwt_helpers import (
     validate_token_type,
 )
 
-# 循環インポート回避のための型チェック時のみインポート
+# 循環インポート回避のための型チェック時
 if TYPE_CHECKING:
     from app.models.user import User
 
-# JWT ヘルパーの初期化
+logger = logging.getLogger(__name__)
+
 jwt_helper = create_jwt_helper(settings.JWT_SECRET_KEY, settings.JWT_ALGORITHM)
 
-# Argon2パスワードハッシャー（設定値を使用）
 argon2_config = settings.get_argon2_config()
 pwd_hasher = PasswordHasher(
     time_cost=argon2_config["time_cost"],
@@ -80,9 +82,6 @@ class SecurityManager:
             return False
         except Exception as e:
             # 予期しないエラーをログに記録（本番環境では詳細ログ）
-            import logging
-
-            logger = logging.getLogger(__name__)
             logger.error(f"パスワード検証中に予期しないエラー: {e}")
             return False
 
@@ -164,7 +163,7 @@ class SecurityManager:
 
     @staticmethod
     def create_refresh_token(user_id: str) -> str:
-        """JWTリフレッシュトークン生成（改善版）
+        """JWTリフレッシュトークン生成
 
         Args:
             user_id: ユーザーID
@@ -232,9 +231,6 @@ class SecurityManager:
                 headers={"WWW-Authenticate": "Bearer"},
             ) from None
         except Exception as e:
-            import logging
-
-            logger = logging.getLogger(__name__)
             logger.error(f"トークン検証中に予期しないエラー: {e}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -260,9 +256,6 @@ class SecurityManager:
             exp = payload.get("exp")
 
             if exp:
-                # トークンの残り有効期限を計算
-                from datetime import UTC, datetime
-
                 current_time = datetime.now(UTC).timestamp()
                 ttl = int(exp - current_time)
 
@@ -272,13 +265,9 @@ class SecurityManager:
 
         except Exception as e:
             # ブラックリスト登録の失敗はログに記録するが例外は発生させない
-            import logging
-
-            logger = logging.getLogger(__name__)
             logger.warning(f"トークンブラックリスト登録に失敗: {e}")
 
 
-# セキュリティマネージャーインスタンス
 security_manager = SecurityManager()
 
 
@@ -299,7 +288,6 @@ async def get_current_user(
     Raises:
         HTTPException: 認証に失敗した場合
     """
-    # 認証情報の確認
     if not credentials:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -330,10 +318,9 @@ async def get_current_user(
 
     # ユーザーの存在確認
     try:
-        # 循環インポートを避けるため、ここでインポート
-        from app.crud.user import user_crud
+        user_repository = get_user_repository()
+        user_result = await user_repository.get_by_id(db, uuid.UUID(user_id))
 
-        user_result = await user_crud.get(db, id=uuid.UUID(user_id))
         if user_result is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -344,18 +331,17 @@ async def get_current_user(
         user: User = user_result
 
     except ValueError:
-        # UUID変換エラー
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="無効なユーザーIDです",
             headers={"WWW-Authenticate": "Bearer"},
         ) from None
-    except ImportError:
-        # CRUDモジュールが未実装の場合
+    except Exception as e:
+        logger.error(f"ユーザー取得中にエラーが発生しました: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="認証システムが正しく設定されていません",
-        ) from None
+        ) from e
 
     # アクティブユーザーの確認
     if not user.can_login:
@@ -418,9 +404,8 @@ async def get_current_user_optional(
         return None
 
 
-# セキュリティユーティリティ関数（改善版）
 def generate_password_reset_token(user_id: str) -> str:
-    """パスワードリセットトークン生成（改善版）
+    """パスワードリセットトークン生成
 
     Args:
         user_id: ユーザーID
@@ -440,7 +425,7 @@ def generate_password_reset_token(user_id: str) -> str:
 
 
 def verify_password_reset_token(token: str) -> str | None:
-    """パスワードリセットトークン検証（改善版）
+    """パスワードリセットトークン検証
 
     Args:
         token: パスワードリセットトークン
