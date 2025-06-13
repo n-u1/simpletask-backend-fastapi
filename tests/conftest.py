@@ -438,9 +438,12 @@ def sample_user_data() -> dict[str, str]:
 @pytest.fixture
 def sample_task_data() -> dict[str, Any]:
     """サンプルタスクデータ"""
+    import uuid
+
+    unique_suffix = uuid.uuid4().hex[:8]
     return {
-        "title": "新しいタスク",
-        "description": "新しいタスクの説明",
+        "title": f"テストタスク_{unique_suffix}",
+        "description": f"テスト用タスクの説明_{unique_suffix}",
         "status": "todo",
         "priority": "high",
         "tag_ids": [],
@@ -450,10 +453,13 @@ def sample_task_data() -> dict[str, Any]:
 @pytest.fixture
 def sample_tag_data() -> dict[str, str]:
     """サンプルタグデータ"""
+    import uuid
+
+    unique_suffix = uuid.uuid4().hex[:8]
     return {
-        "name": "新しいタグ",
+        "name": f"テストタグ_{unique_suffix}",
         "color": "#EF4444",
-        "description": "新しいタグの説明",
+        "description": f"テスト用タグの説明_{unique_suffix}",
     }
 
 
