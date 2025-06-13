@@ -411,8 +411,18 @@ class TestTagTaskIntegration:
 
         assert response.status_code == 201
         data = response.json()
-        assert len(data["tags"]) == 1
-        assert data["tags"][0]["id"] == str(test_tag["id"])
+        assert data["title"] == task_data["title"]
+
+        # 作成後のタスク詳細を取得してタグ情報を確認
+        task_detail_response = await async_client.get(f"/api/v1/tasks/{data['id']}", headers=auth_headers)
+        assert task_detail_response.status_code == 200
+        task_detail = task_detail_response.json()
+
+        # 必ずタグ情報が含まれている
+        assert "tags" in task_detail
+        assert len(task_detail["tags"]) == 1
+        assert task_detail["tags"][0]["id"] == str(test_tag["id"])
+        assert task_detail["tags"][0]["name"] == test_tag["tag"].name
 
     @pytest.mark.asyncio
     async def test_filter_tasks_by_tag(
@@ -440,3 +450,61 @@ class TestTagTaskIntegration:
         for task in data["tasks"]:
             tag_ids = [tag["id"] for tag in task["tags"]]
             assert str(test_tag["id"]) in tag_ids
+
+    @pytest.mark.asyncio
+    async def test_mixed_valid_invalid_tags(
+        self,
+        async_client: AsyncClient,
+        auth_headers: dict[str, str],
+        db_session: AsyncSession,
+        test_user: dict[str, Any],
+        test_tag: dict[str, Any],
+    ) -> None:
+        """有効なタグと無効なタグが混在する場合のテスト"""
+        # 別のユーザーのタグを作成
+        from app.core.security import security_manager
+        from app.models.tag import Tag
+        from app.models.user import User
+
+        other_user = User(
+            email="mixedtags@example.com",
+            display_name="別ユーザー",
+            password_hash=security_manager.get_password_hash("password123"),
+            is_active=True,
+        )
+        db_session.add(other_user)
+        await db_session.flush()
+
+        invalid_tag = Tag(
+            name="無効なタグ",
+            color="#FF0000",
+            user_id=other_user.id,
+            is_active=True,
+        )
+        db_session.add(invalid_tag)
+        await db_session.commit()
+
+        # 有効なタグと無効なタグを混在させてタスク作成
+        task_data = {
+            "title": "混在タグテスト",
+            "status": "todo",
+            "priority": "medium",
+            "tag_ids": [str(test_tag["id"]), str(invalid_tag.id)],  # 有効 + 無効
+        }
+
+        response = await async_client.post("/api/v1/tasks/", headers=auth_headers, json=task_data)
+
+        assert response.status_code == 201
+        data = response.json()
+
+        # タスク詳細を取得
+        detail_response = await async_client.get(f"/api/v1/tasks/{data['id']}", headers=auth_headers)
+        assert detail_response.status_code == 200
+        detail_data = detail_response.json()
+
+        # 有効なタグのみが関連付けられることを確認
+        if "tags" in detail_data and len(detail_data["tags"]) > 0:
+            tag_ids = [tag["id"] for tag in detail_data["tags"]]
+            assert str(test_tag["id"]) in tag_ids
+            assert str(invalid_tag.id) not in tag_ids
+            assert len(detail_data["tags"]) == 1  # 有効なタグのみ

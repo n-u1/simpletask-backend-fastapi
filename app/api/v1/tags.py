@@ -81,9 +81,9 @@ async def create_tag(
 ) -> TagResponse:
     """タグを作成"""
     try:
-        tag = await tag_service.create_tag(db, tag_in, current_user.id)
+        tag_data = await tag_service.create_tag_for_response(db, tag_in, current_user.id)
 
-        return TagResponse.model_validate(tag)
+        return TagResponse(**tag_data)
 
     except ValueError as e:
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
@@ -102,11 +102,11 @@ async def get_tag(
 ) -> TagResponse:
     """特定タグを取得"""
     try:
-        tag = await tag_service.get_tag(db, tag_id, current_user.id)
-        if not tag:
+        tag_data = await tag_service.get_tag_for_response(db, tag_id, current_user.id)
+        if not tag_data:
             raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail=ErrorMessages.TAG_NOT_FOUND)
 
-        return TagResponse.model_validate(tag)
+        return TagResponse(**tag_data)
 
     except PermissionError as e:
         raise HTTPException(status_code=http_status.HTTP_403_FORBIDDEN, detail=str(e)) from e
@@ -122,9 +122,9 @@ async def update_tag(
 ) -> TagResponse:
     """タグを更新"""
     try:
-        tag = await tag_service.update_tag(db, tag_id, tag_in, current_user.id)
+        tag_data = await tag_service.update_tag_for_response(db, tag_id, tag_in, current_user.id)
 
-        return TagResponse.model_validate(tag)
+        return TagResponse(**tag_data)
 
     except ValueError as e:
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e)) from e

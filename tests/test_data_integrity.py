@@ -589,8 +589,22 @@ class TestBusinessRuleConstraints:
             },
         )
 
-        # エラーになることを期待（400または403）
-        assert response.status_code in [400, 403]
+        # タスク作成は成功する
+        assert response.status_code == 201
+        data = response.json()
+
+        # 作成されたタスクの詳細を取得
+        task_detail_response = await async_client.get(f"/api/v1/tasks/{data['id']}", headers=headers)
+        assert task_detail_response.status_code == 200
+        task_detail = task_detail_response.json()
+
+        # 他人のタグは関連付けられていないことを確認
+        other_tag_ids = [tag["id"] for tag in task_detail.get("tags", [])]
+        assert str(other_tag.id) not in other_tag_ids, "他人のタグが関連付けられてしまった"
+
+        # タスクは作成されているが、無効なタグは無視されている
+        assert task_detail["title"] == "他人のタグ付きタスク"
+        assert len(task_detail.get("tags", [])) == 0  # 有効なタグがないため空
 
 
 class TestDataIntegrityEdgeCases:

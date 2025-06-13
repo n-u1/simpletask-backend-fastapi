@@ -22,7 +22,7 @@ from app.models.base import Base
 
 
 def create_test_app():
-    """テスト環境用のFastAPIアプリケーションを作成（conftest内で定義）"""
+    """テスト環境用のFastAPIアプリケーションを作成"""
     import logging
     import time
     from typing import Any
@@ -38,76 +38,14 @@ def create_test_app():
 
     # テスト用スキーマ設定
     try:
-        # テストスキーマのインライン定義
         from datetime import datetime
         from uuid import UUID
 
         from pydantic import BaseModel, ConfigDict
 
         import app.api.v1.auth as auth_module
-        import app.api.v1.tags as tags_module
         import app.api.v1.tasks as tasks_module
 
-        # 1. まず完全版TestTagResponseを定義（元の仕様通り）
-        class TestTagResponse(BaseModel):
-            model_config = ConfigDict(from_attributes=True, ignored_types=(property,))
-
-            # 基本フィールド（元の完全版を保持）
-            id: UUID
-            name: str
-            color: str
-            description: str | None = None
-            is_active: bool
-            user_id: UUID
-            created_at: datetime
-            updated_at: datetime
-
-            # 計算プロパティは手動で設定（from_attributes では読み取らない）
-            task_count: int = 0
-            active_task_count: int = 0
-            completed_task_count: int = 0
-            color_rgb: tuple[int, int, int] = (255, 255, 255)
-            is_preset_color: bool = False
-
-            @classmethod
-            def model_validate(
-                cls,
-                obj: Any,
-                *,
-                strict: bool | None = None,
-                from_attributes: bool | None = None,
-                context: Any | None = None,
-                by_alias: bool | None = None,
-                by_name: bool | None = None,
-            ) -> Self:
-                """カスタムバリデーション：計算プロパティを固定値で設定"""
-                if hasattr(obj, "id"):  # Tagモデルの場合
-                    return cls(
-                        id=obj.id,
-                        name=obj.name,
-                        color=obj.color,
-                        description=obj.description,
-                        is_active=obj.is_active,
-                        user_id=obj.user_id,
-                        created_at=obj.created_at,
-                        updated_at=obj.updated_at,
-                        # 計算プロパティは固定値
-                        task_count=0,
-                        active_task_count=0,
-                        completed_task_count=0,
-                        color_rgb=(255, 255, 255),
-                        is_preset_color=False,
-                    )
-                return super().model_validate(
-                    obj,
-                    strict=strict,
-                    from_attributes=from_attributes,
-                    context=context,
-                    by_alias=by_alias,
-                    by_name=by_name,
-                )
-
-        # 2. TestUserResponse を定義
         class TestUserResponse(BaseModel):
             model_config = ConfigDict(from_attributes=True)
             id: UUID
@@ -119,7 +57,13 @@ def create_test_app():
             created_at: datetime
             updated_at: datetime
 
-        # 3. TestTaskResponse を定義（完全版TestTagResponseを参照）
+        class TestTagInfo(BaseModel):
+            model_config = ConfigDict(from_attributes=True)
+            id: UUID
+            name: str
+            color: str
+            description: str | None = None
+
         class TestTaskResponse(BaseModel):
             model_config = ConfigDict(from_attributes=True)
             id: UUID
@@ -138,8 +82,7 @@ def create_test_app():
             updated_at: datetime
             days_until_due: int | None = None
 
-            # 問題のあるフィールドをオプショナルにして、手動で処理
-            tags: list[TestTagResponse] = []
+            tags: list[TestTagInfo] = []
             tag_names: list[str] = []
 
             @classmethod
@@ -153,9 +96,8 @@ def create_test_app():
                 by_alias: bool | None = None,
                 by_name: bool | None = None,
             ) -> Self:
-                """カスタムバリデーション：Greenlet問題を回避"""
-                if hasattr(obj, "id"):  # Taskモデルの場合
-                    # 基本フィールドのみで作成
+                """TaskResponse用のカスタムバリデーション"""
+                if hasattr(obj, "id"):
                     instance = cls(
                         id=obj.id,
                         title=obj.title,
@@ -168,28 +110,31 @@ def create_test_app():
                         user_id=obj.user_id,
                         is_completed=obj.status == "done",
                         is_archived=obj.status == "archived",
-                        is_overdue=False,  # 安全な固定値
+                        is_overdue=False,
                         created_at=obj.created_at,
                         updated_at=obj.updated_at,
-                        days_until_due=None,  # 安全な固定値
-                        tags=[],  # 空配列で初期化
-                        tag_names=[],  # 空配列で初期化
+                        days_until_due=None,
+                        tags=[],
+                        tag_names=[],
                     )
 
-                    # tagsが既に読み込まれている場合のみ設定
                     try:
                         if hasattr(obj, "task_tags") and obj.task_tags:
                             tags = []
                             tag_names = []
                             for task_tag in obj.task_tags:
                                 if hasattr(task_tag, "tag") and task_tag.tag:
-                                    tag_dict = TestTagResponse.model_validate(task_tag.tag)
+                                    tag_dict = TestTagInfo(
+                                        id=task_tag.tag.id,
+                                        name=task_tag.tag.name,
+                                        color=task_tag.tag.color,
+                                        description=task_tag.tag.description,
+                                    )
                                     tags.append(tag_dict)
                                     tag_names.append(task_tag.tag.name)
                             instance.tags = tags
                             instance.tag_names = tag_names
                     except Exception:
-                        # エラーが発生した場合は空配列のまま
                         pass
 
                     return instance
@@ -203,7 +148,7 @@ def create_test_app():
                     by_name=by_name,
                 )
 
-        # スキーマ置き換え
+        # スキーマ置き換え（型チェッカー警告を回避するためtype: ignoreを使用）
         if hasattr(auth_module, "UserResponse"):
             auth_module.UserResponse = TestUserResponse  # type: ignore
             print("✅ UserResponseスキーマ置き換え完了")
@@ -212,14 +157,11 @@ def create_test_app():
             tasks_module.TaskResponse = TestTaskResponse  # type: ignore
             print("✅ TaskResponseスキーマ置き換え完了")
 
-        if hasattr(tags_module, "TagResponse"):
-            tags_module.TagResponse = TestTagResponse  # type: ignore
-            print("✅ TagResponseスキーマ置き換え完了")
+        print("✅ TagResponseは本来のスキーマを使用")
 
     except ImportError as e:
         print(f"⚠️ スキーマ置き換えでエラー: {e}")
 
-    # FastAPIアプリ作成
     app = FastAPI(
         title=settings.PROJECT_NAME,
         version=settings.PROJECT_VERSION,
@@ -229,7 +171,6 @@ def create_test_app():
         redoc_url=f"{settings.API_V1_STR}/redoc",
     )
 
-    # CORSミドルウェア
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -238,7 +179,6 @@ def create_test_app():
         allow_headers=["*"],
     )
 
-    # リクエスト処理時間ログ
     @app.middleware("http")
     async def log_requests(request: Request, call_next: Any) -> Any:
         start_time = time.time()
@@ -247,19 +187,16 @@ def create_test_app():
         logger.info(f"{request.method} {request.url.path} - Status: {response.status_code} - Time: {process_time:.3f}s")
         return response
 
-    # 例外ハンドラー
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
         return JSONResponse(
             status_code=exc.status_code, content={"error": "http_error", "message": exc.detail, "details": None}
         )
 
-    # API ルーター登録
     from app.api.v1.router import api_router
 
     app.include_router(api_router, prefix=settings.API_V1_STR)
 
-    # ヘルスチェック
     @app.get("/health")
     async def health_check() -> dict[str, Any]:
         return {"status": "healthy", "environment": "testing", "version": settings.PROJECT_VERSION}
@@ -273,14 +210,12 @@ def setup_redis_mock() -> None:
     try:
         import app.core.redis as redis_module
 
-        # キャッシュモック
         redis_module.cache = MagicMock()
         redis_module.cache.get = AsyncMock(return_value=None)
         redis_module.cache.set = AsyncMock(return_value=True)
         redis_module.cache.exists = AsyncMock(return_value=False)
         redis_module.cache.delete = AsyncMock(return_value=True)
 
-        # レート制限モック
         redis_module.rate_limiter = MagicMock()
         redis_module.rate_limiter.is_allowed = AsyncMock(return_value=True)
         redis_module.rate_limiter.get_remaining = AsyncMock(return_value={"reset_time": 0})
@@ -319,7 +254,7 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_env() -> None:
     """テスト環境セットアップ"""
-    # 環境変数設定（最優先）
+    # 環境変数設定
     os.environ["ENVIRONMENT"] = "testing"
     os.environ["DB_NAME"] = "test_simpletask"
     os.environ["LOG_LEVEL"] = "WARNING"
@@ -352,7 +287,6 @@ def setup_test_env() -> None:
     except Exception as e:
         print(f"⚠️ 設定リセットエラー: {e}")
 
-    # Redisモック化を再実行（念のため）
     setup_redis_mock()
 
 
@@ -396,7 +330,7 @@ def client(db_session: AsyncSession) -> Generator[TestClient]:
 
 
 # ========================================
-# テストエンティティフィクスチャ（test_entities.pyから移動）
+# テストエンティティフィクスチャ
 # ========================================
 
 

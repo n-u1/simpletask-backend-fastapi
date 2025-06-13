@@ -188,15 +188,6 @@ class TaskPositionUpdate(BaseModel):
         ..., ge=TaskConstants.POSITION_MIN, le=TaskConstants.POSITION_MAX, description="新しい位置"
     )
 
-    affected_tasks: list["TaskPositionItem"] = Field(default_factory=list, description="位置が影響を受ける他のタスク")
-
-
-class TaskPositionItem(BaseModel):
-    """位置変更で影響を受けるタスクの情報"""
-
-    id: UUID = Field(..., description="タスクID")
-    position: int = Field(..., ge=TaskConstants.POSITION_MIN, le=TaskConstants.POSITION_MAX, description="新しい位置")
-
 
 class TagInfo(BaseModel):
     """タスク応答に含まれるタグ情報"""
@@ -206,6 +197,7 @@ class TagInfo(BaseModel):
     id: UUID = Field(..., description="タグID")
     name: str = Field(..., description="タグ名")
     color: str = Field(..., description="タグ色")
+    description: str | None = Field(None, description="タグ説明")
 
 
 class TaskResponse(TaskBase):

@@ -522,7 +522,7 @@ async def test_redis_operations() -> None:
 
         # JSONキャッシュテスト
         json_test_key = "test:json"
-        json_test_value = {"name": "SimpleTask", "version": "1.0.0"}
+        json_test_value = {"name": "SimpleTask", "version": "0.1.0"}
 
         await json_cache.set_json(json_test_key, json_test_value, expire=60)
         cached_json = await json_cache.get_json(json_test_key)

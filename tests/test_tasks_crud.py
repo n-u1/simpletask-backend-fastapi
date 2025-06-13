@@ -345,3 +345,220 @@ class TestTaskAccessControl:
         task_titles = [task["title"] for task in data["tasks"]]
         assert test_task["task"].title in task_titles
         assert "他のユーザーのタスク" not in task_titles
+
+
+class TestTaskReorder:
+    """タスク並び替えテスト"""
+
+    @pytest.mark.asyncio
+    async def test_reorder_task_same_status_success(
+        self,
+        async_client: AsyncClient,
+        auth_headers: dict[str, str],
+        db_session: AsyncSession,
+        test_user: dict[str, Any],
+    ) -> None:
+        """同一ステータス内でのタスク並び替え成功"""
+        # 複数のタスクを作成（同じステータス）
+        from app.models.task import Task
+
+        tasks = []
+        for i in range(4):
+            task_data = {
+                "title": f"タスク{i}",
+                "description": f"テスト用タスク{i}",
+                "status": "todo",
+                "priority": "medium",
+                "user_id": test_user["id"],
+                "position": i,
+            }
+            task = Task(**task_data)
+            db_session.add(task)
+            tasks.append(task)
+
+        await db_session.commit()
+        for task in tasks:
+            await db_session.refresh(task)
+
+        # タスク1を位置3に移動（0→3）
+        reorder_data = {
+            "task_id": str(tasks[1].id),
+            "new_position": 3,
+            "new_status": None,  # 同一ステータス内移動
+        }
+
+        response = await async_client.patch("/api/v1/tasks/reorder", headers=auth_headers, json=reorder_data)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "message" in data
+        assert "tasks" in data
+
+        # 位置が正しく調整されているか確認
+        updated_tasks = {task["id"]: task for task in data["tasks"]}
+
+        # 移動したタスクの位置確認
+        assert updated_tasks[str(tasks[1].id)]["position"] == 3
+
+        # 他のタスクの位置調整確認
+        assert updated_tasks[str(tasks[0].id)]["position"] == 0  # 変化なし
+        assert updated_tasks[str(tasks[2].id)]["position"] == 1  # 1つ前に
+        assert updated_tasks[str(tasks[3].id)]["position"] == 2  # 1つ前に
+
+    @pytest.mark.asyncio
+    async def test_reorder_task_different_status_success(
+        self,
+        async_client: AsyncClient,
+        auth_headers: dict[str, str],
+        db_session: AsyncSession,
+        test_user: dict[str, Any],
+    ) -> None:
+        """異なるステータス間でのタスク移動成功"""
+        from app.models.task import Task
+
+        # TODO状態のタスクを作成
+        todo_tasks = []
+        for i in range(3):
+            task_data = {
+                "title": f"TODOタスク{i}",
+                "status": "todo",
+                "priority": "medium",
+                "user_id": test_user["id"],
+                "position": i,
+            }
+            task = Task(**task_data)
+            db_session.add(task)
+            todo_tasks.append(task)
+
+        # IN_PROGRESS状態のタスクを作成
+        progress_tasks = []
+        for i in range(2):
+            task_data = {
+                "title": f"進行中タスク{i}",
+                "status": "in_progress",
+                "priority": "medium",
+                "user_id": test_user["id"],
+                "position": i,
+            }
+            task = Task(**task_data)
+            db_session.add(task)
+            progress_tasks.append(task)
+
+        await db_session.commit()
+        for task in todo_tasks + progress_tasks:
+            await db_session.refresh(task)
+
+        # TODOタスク1をIN_PROGRESSの位置1に移動
+        reorder_data = {"task_id": str(todo_tasks[1].id), "new_position": 1, "new_status": "in_progress"}
+
+        response = await async_client.patch("/api/v1/tasks/reorder", headers=auth_headers, json=reorder_data)
+
+        assert response.status_code == 200
+        data = response.json()
+
+        updated_tasks = {task["id"]: task for task in data["tasks"]}
+
+        # 移動したタスクの確認
+        moved_task = updated_tasks[str(todo_tasks[1].id)]
+        assert moved_task["status"] == "in_progress"
+        assert moved_task["position"] == 1
+
+        # TODO グループの位置調整確認
+        assert updated_tasks[str(todo_tasks[0].id)]["position"] == 0  # 変化なし
+        assert updated_tasks[str(todo_tasks[2].id)]["position"] == 1  # 1つ前に詰める
+
+        # IN_PROGRESS グループの位置調整確認
+        assert updated_tasks[str(progress_tasks[0].id)]["position"] == 0  # 変化なし
+        assert updated_tasks[str(progress_tasks[1].id)]["position"] == 2  # 1つ後ろに移動
+
+    @pytest.mark.asyncio
+    async def test_reorder_task_not_found(self, async_client: AsyncClient, auth_headers: dict[str, str]) -> None:
+        """存在しないタスクの並び替えエラー"""
+        from uuid import uuid4
+
+        fake_id = uuid4()
+        reorder_data = {"task_id": str(fake_id), "new_position": 1, "new_status": "todo"}
+
+        response = await async_client.patch("/api/v1/tasks/reorder", headers=auth_headers, json=reorder_data)
+
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_reorder_task_without_auth(self, async_client: AsyncClient, test_task: dict[str, Any]) -> None:
+        """認証なしでの並び替えエラー"""
+        reorder_data = {"task_id": str(test_task["id"]), "new_position": 1, "new_status": "todo"}
+
+        response = await async_client.patch("/api/v1/tasks/reorder", json=reorder_data)
+
+        assert response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_reorder_task_invalid_position(
+        self, async_client: AsyncClient, auth_headers: dict[str, str], test_task: dict[str, Any]
+    ) -> None:
+        """無効な位置での並び替えエラー"""
+        reorder_data = {
+            "task_id": str(test_task["id"]),
+            "new_position": -1,  # 無効な位置
+            "new_status": "todo",
+        }
+
+        response = await async_client.patch("/api/v1/tasks/reorder", headers=auth_headers, json=reorder_data)
+
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_reorder_task_same_position_no_change(
+        self, async_client: AsyncClient, auth_headers: dict[str, str], test_task: dict[str, Any]
+    ) -> None:
+        """同じ位置への移動（変更なし）"""
+        # 現在の位置と同じ位置に移動
+        reorder_data = {
+            "task_id": str(test_task["id"]),
+            "new_position": test_task["task"].position,
+            "new_status": test_task["task"].status,
+        }
+
+        response = await async_client.patch("/api/v1/tasks/reorder", headers=auth_headers, json=reorder_data)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "message" in data
+
+    @pytest.mark.asyncio
+    async def test_reorder_task_access_control(
+        self, async_client: AsyncClient, db_session: AsyncSession, test_task: dict[str, Any]
+    ) -> None:
+        """他のユーザーのタスクを並び替えできないことを確認"""
+        # 別のユーザーを作成
+        from app.core.security import security_manager
+        from app.models.user import User
+
+        other_user_data = {
+            "email": "reorderuser@example.com",
+            "display_name": "並び替えテストユーザー",
+            "password_hash": security_manager.get_password_hash("password123"),
+            "is_active": True,
+        }
+
+        other_user = User(**other_user_data)
+        db_session.add(other_user)
+        await db_session.commit()
+
+        # 別のユーザーでログイン
+        login_response = await async_client.post(
+            "/api/v1/auth/login",
+            data={
+                "username": "reorderuser@example.com",
+                "password": "password123",
+            },
+        )
+        other_user_token = login_response.json()["access_token"]
+        other_user_headers = {"Authorization": f"Bearer {other_user_token}"}
+
+        # 他のユーザーのタスクを並び替え試行
+        reorder_data = {"task_id": str(test_task["id"]), "new_position": 1, "new_status": "in_progress"}
+
+        response = await async_client.patch("/api/v1/tasks/reorder", headers=other_user_headers, json=reorder_data)
+
+        assert response.status_code == 400  # タスクが見つからない

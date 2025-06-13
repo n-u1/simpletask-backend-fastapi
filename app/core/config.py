@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     # アプリケーション設定
     # =============================================================================
     PROJECT_NAME: str = "SimpleTask API"
-    PROJECT_VERSION: str = "1.0.0"
+    PROJECT_VERSION: str = "0.1.0"
     ENVIRONMENT: str = "development"
     DEBUG: bool = True
     LOG_LEVEL: str = "INFO"

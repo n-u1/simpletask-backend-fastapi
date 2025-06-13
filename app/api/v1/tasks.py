@@ -86,9 +86,9 @@ async def create_task(
 ) -> TaskResponse:
     """タスクを作成"""
     try:
-        task = await task_service.create_task(db, task_in, current_user.id)
+        task_data = await task_service.create_task_for_response(db, task_in, current_user.id)
 
-        return TaskResponse.model_validate(task)
+        return TaskResponse(**task_data)
 
     except ValueError as e:
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
@@ -104,11 +104,11 @@ async def get_task(
 ) -> TaskResponse:
     """特定タスクを取得"""
     try:
-        task = await task_service.get_task(db, task_id, current_user.id)
-        if not task:
+        task_data = await task_service.get_task_for_response(db, task_id, current_user.id)
+        if not task_data:
             raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail=ErrorMessages.TASK_NOT_FOUND)
 
-        return TaskResponse.model_validate(task)
+        return TaskResponse(**task_data)
 
     except PermissionError as e:
         raise HTTPException(status_code=http_status.HTTP_403_FORBIDDEN, detail=str(e)) from e
@@ -124,9 +124,9 @@ async def update_task(
 ) -> TaskResponse:
     """タスクを更新"""
     try:
-        task = await task_service.update_task(db, task_id, task_in, current_user.id)
+        task_data = await task_service.update_task_for_response(db, task_id, task_in, current_user.id)
 
-        return TaskResponse.model_validate(task)
+        return TaskResponse(**task_data)
 
     except ValueError as e:
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
@@ -144,9 +144,11 @@ async def update_task_status(
 ) -> TaskResponse:
     """タスクステータスを更新"""
     try:
-        task = await task_service.update_task_status(db, task_id, status_update.status, current_user.id)
+        task_data = await task_service.update_task_status_for_response(
+            db, task_id, status_update.status, current_user.id
+        )
 
-        return TaskResponse.model_validate(task)
+        return TaskResponse(**task_data)
 
     except ValueError as e:
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
@@ -170,13 +172,13 @@ async def delete_task(
         raise HTTPException(status_code=http_status.HTTP_403_FORBIDDEN, detail=str(e)) from e
 
 
-@router.patch("/reorder", response_model=dict[str, str])
+@router.patch("/reorder", response_model=dict[str, str | list | int])
 async def reorder_tasks(
     *,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     position_update: TaskPositionUpdate,
-) -> dict[str, str]:
+) -> dict[str, str | list | int]:
     """タスクの並び順を変更（ドラッグ&ドロップ用）"""
     try:
         success = await task_service.reorder_tasks(db, position_update, current_user.id)
@@ -184,7 +186,21 @@ async def reorder_tasks(
         if not success:
             raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail="タスクの並び順変更に失敗しました")
 
-        return {"message": "タスクの並び順を変更しました"}
+        # 成功時は更新後のタスク一覧を返す（フロントエンドでの同期用）
+        updated_tasks = await task_service.get_tasks(
+            db,
+            current_user.id,
+            page=1,
+            per_page=100,  # 十分な数を取得
+            filters=None,
+            sort_options=TaskSortOptions(sort_by="position", order="asc"),
+        )
+
+        return {
+            "message": "タスクの並び順を変更しました",
+            "tasks": [task.model_dump() for task in updated_tasks.tasks],
+            "total": updated_tasks.total,
+        }
 
     except ValueError as e:
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
@@ -205,9 +221,11 @@ async def get_tasks_by_status(
 ) -> list[TaskResponse]:
     """ステータス別でタスクを取得"""
     try:
-        tasks = await task_service.get_tasks_by_status(db, current_user.id, task_status, page=page, per_page=per_page)
+        task_dicts = await task_service.get_tasks_by_status_for_response(
+            db, current_user.id, task_status, page=page, per_page=per_page
+        )
 
-        return [TaskResponse.model_validate(task) for task in tasks]
+        return [TaskResponse(**task_dict) for task_dict in task_dicts]
 
     except ValueError as e:
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
@@ -225,9 +243,11 @@ async def get_overdue_tasks(
 ) -> list[TaskResponse]:
     """期限切れタスクを取得"""
     try:
-        tasks = await task_service.get_overdue_tasks(db, current_user.id, page=page, per_page=per_page)
+        task_dicts = await task_service.get_overdue_tasks_for_response(
+            db, current_user.id, page=page, per_page=per_page
+        )
 
-        return [TaskResponse.model_validate(task) for task in tasks]
+        return [TaskResponse(**task_dict) for task_dict in task_dicts]
 
     except ValueError as e:
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e)) from e

@@ -73,7 +73,7 @@ async def api_info() -> dict[str, Any]:
     """API情報を取得（デバッグ用）"""
     return {
         "message": "SimpleTask API v1",
-        "version": "1.0.0",
+        "version": "0.1.0",
         "endpoints": {"auth": "/auth/*", "users": "/users/*", "tasks": "/tasks/*", "tags": "/tags/*"},
         "documentation": {"swagger": "/docs", "redoc": "/redoc", "openapi": "/openapi.json"},
     }
