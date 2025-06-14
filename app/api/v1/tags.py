@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.constants import APIConstants, ErrorMessages
 from app.core.database import get_db
 from app.core.security import get_current_user
+from app.dtos.tag import TagDTO, TagListDTO
 from app.models.user import User
 from app.schemas.tag import (
     TagCreate,
@@ -27,6 +28,36 @@ from app.schemas.tag import (
 from app.services.tag import tag_service
 
 router = APIRouter()
+
+
+def _convert_tag_dto_to_response(tag_dto: TagDTO) -> TagResponse:
+    """TagDTOをTagResponseに変換"""
+    return TagResponse(
+        id=tag_dto.id,
+        user_id=tag_dto.user_id,
+        name=tag_dto.name,
+        color=tag_dto.color,
+        description=tag_dto.description,
+        is_active=tag_dto.is_active,
+        task_count=tag_dto.task_count,
+        active_task_count=tag_dto.active_task_count,
+        completed_task_count=tag_dto.completed_task_count,
+        color_rgb=tag_dto.color_rgb,
+        is_preset_color=tag_dto.is_preset_color,
+        created_at=tag_dto.created_at,
+        updated_at=tag_dto.updated_at,
+    )
+
+
+def _convert_tag_list_dto_to_response(tag_list_dto: TagListDTO) -> TagListResponse:
+    """TagListDTOをTagListResponseに変換"""
+    return TagListResponse(
+        tags=[_convert_tag_dto_to_response(tag_dto) for tag_dto in tag_list_dto.tags],
+        total=tag_list_dto.total,
+        page=tag_list_dto.page,
+        per_page=tag_list_dto.per_page,
+        total_pages=tag_list_dto.total_pages,
+    )
 
 
 @router.get("/", response_model=TagListResponse)
@@ -59,7 +90,8 @@ async def get_tags(
     sort_options = TagSortOptions(sort_by=sort_by, order=order)
 
     try:
-        tag_list = await tag_service.get_tags(
+        # サービス層からDTOを取得
+        tag_list_dto = await tag_service.get_tags(
             db,
             current_user.id,
             page=page,
@@ -69,7 +101,7 @@ async def get_tags(
             include_inactive=include_inactive,
         )
 
-        return tag_list
+        return _convert_tag_list_dto_to_response(tag_list_dto)
 
     except ValueError as e:
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
@@ -81,9 +113,10 @@ async def create_tag(
 ) -> TagResponse:
     """タグを作成"""
     try:
-        tag_data = await tag_service.create_tag_for_response(db, tag_in, current_user.id)
+        # サービス層でタグ作成
+        tag_dto = await tag_service.create_tag(db, tag_in, current_user.id)
 
-        return TagResponse(**tag_data)
+        return _convert_tag_dto_to_response(tag_dto)
 
     except ValueError as e:
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
@@ -102,11 +135,12 @@ async def get_tag(
 ) -> TagResponse:
     """特定タグを取得"""
     try:
-        tag_data = await tag_service.get_tag_for_response(db, tag_id, current_user.id)
-        if not tag_data:
+        # サービス層からDTOを取得
+        tag_dto = await tag_service.get_tag(db, tag_id, current_user.id)
+        if not tag_dto:
             raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail=ErrorMessages.TAG_NOT_FOUND)
 
-        return TagResponse(**tag_data)
+        return _convert_tag_dto_to_response(tag_dto)
 
     except PermissionError as e:
         raise HTTPException(status_code=http_status.HTTP_403_FORBIDDEN, detail=str(e)) from e
@@ -122,9 +156,10 @@ async def update_tag(
 ) -> TagResponse:
     """タグを更新"""
     try:
-        tag_data = await tag_service.update_tag_for_response(db, tag_id, tag_in, current_user.id)
+        # サービス層でタグ更新
+        tag_dto = await tag_service.update_tag(db, tag_id, tag_in, current_user.id)
 
-        return TagResponse(**tag_data)
+        return _convert_tag_dto_to_response(tag_dto)
 
     except ValueError as e:
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e)) from e

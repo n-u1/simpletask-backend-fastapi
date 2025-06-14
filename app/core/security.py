@@ -22,7 +22,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.dependencies import get_user_repository
 from app.core.redis import cache
 from app.utils.jwt_helpers import (
     TOKEN_TYPE_ACCESS,
@@ -55,7 +54,6 @@ security = HTTPBearer(auto_error=False)
 # モジュールレベルの依存関数（Lint警告回避のため設定）
 security_dependency = Depends(security)
 db_dependency = Depends(get_db)
-# current_user_dependency は get_current_user 定義後に設定
 
 
 class SecurityManager:
@@ -277,13 +275,14 @@ async def get_current_user(
     """現在のユーザーを取得
 
     JWT認証を行い、有効なユーザーオブジェクトを返す
+    認証に必要な機密情報アクセスのためSQLAlchemyモデルを返す
 
     Args:
         credentials: HTTPベアラー認証情報
         db: データベースセッション
 
     Returns:
-        認証されたユーザーオブジェクト
+        認証されたユーザーオブジェクト（SQLAlchemy）
 
     Raises:
         HTTPException: 認証に失敗した場合
@@ -316,19 +315,31 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # ユーザーの存在確認
+    # ユーザーの存在確認（認証用なので機密情報込みで取得）
     try:
-        user_repository = get_user_repository()
-        user_result = await user_repository.get_by_id(db, uuid.UUID(user_id))
+        from app.repositories.user import user_repository
 
-        if user_result is None:
+        user_dto = await user_repository.get_by_id(db, uuid.UUID(user_id))
+
+        if user_dto is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="ユーザーが見つかりません",
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        user: User = user_result
+        # 認証処理のため、SQLAlchemyモデルを取得し直す
+        # （パスワード更新などで必要）
+        from app.crud.user import user_crud
+
+        user = await user_crud.get(db, id=uuid.UUID(user_id))
+
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="ユーザーが見つかりません",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
 
     except ValueError:
         raise HTTPException(

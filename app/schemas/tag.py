@@ -175,15 +175,15 @@ class TagListResponse(BaseModel):
 class TagFilters(BaseModel):
     """タグフィルタリング用スキーマ"""
 
-    is_active: bool | None = Field(None, description="アクティブ状態フィルタ")
+    is_active: bool | None = Field(default=None, description="アクティブ状態フィルタ")
 
-    colors: list[str] | None = Field(None, description="カラーフィルタ")
+    colors: list[str] | None = Field(default=None, description="カラーフィルタ")
 
-    has_tasks: bool | None = Field(None, description="タスクありフィルタ")
+    has_tasks: bool | None = Field(default=None, description="タスクありフィルタ")
 
-    min_task_count: int | None = Field(None, ge=0, description="最小タスク数")
+    min_task_count: int | None = Field(default=None, ge=0, description="最小タスク数")
 
-    search: str | None = Field(None, min_length=1, max_length=100, description="タグ名・説明での検索")
+    search: str | None = Field(default=None, min_length=1, max_length=100, description="タグ名・説明での検索")
 
     @field_validator("colors")
     @classmethod

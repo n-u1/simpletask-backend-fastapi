@@ -9,51 +9,53 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.constants import APIConstants, ErrorMessages
 from app.crud.tag import tag_crud
-from app.models.tag import Tag
+from app.dtos.tag import TagDTO, TagListDTO
 from app.repositories.tag import tag_repository
-from app.schemas.tag import (
-    TagCreate,
-    TagFilters,
-    TagListResponse,
-    TagResponse,
-    TagSortOptions,
-    TagUpdate,
-)
-from app.utils.pagination import calculate_pagination, create_pagination_result
+from app.schemas.tag import TagCreate, TagFilters, TagSortOptions, TagUpdate
 
 
 class TagService:
+    """タグサービス
+
+    ビジネスロジックのみに専念
+    データ変換はリポジトリ層で実施
+    """
+
     def __init__(self) -> None:
         self.tag_crud = tag_crud
         self.tag_repository = tag_repository
 
     async def get_tag(
         self, db: AsyncSession, tag_id: UUID, user_id: UUID, *, include_inactive: bool = False
-    ) -> Tag | None:
-        """タグを取得（内部処理用）"""
-        tag = await self.tag_crud.get_by_user(db, user_id, tag_id, include_inactive=include_inactive)
-        if not tag:
+    ) -> TagDTO | None:
+        """タグを取得
+
+        Args:
+            db: データベースセッション
+            tag_id: タグID
+            user_id: ユーザーID
+            include_inactive: 非アクティブタグも含めるかどうか
+
+        Returns:
+            TagDTO または None
+
+        Raises:
+            PermissionError: アクセス権限がない場合
+        """
+        # DTOで取得
+        tag_dto = await self.tag_repository.get_by_id(db, tag_id, user_id)
+        if not tag_dto:
+            return None
+
+        # アクティブ状態チェック
+        if not include_inactive and not tag_dto.is_active:
             return None
 
         # アクセス権限チェック
-        from app.utils.permission import create_permission_checker
+        if tag_dto.user_id != user_id:
+            raise PermissionError("このタグにアクセスする権限がありません")
 
-        permission_checker = create_permission_checker(user_id)
-        permission_checker.check_tag_access(tag, include_inactive=include_inactive)
-
-        return tag
-
-    async def get_tag_for_response(
-        self, db: AsyncSession, tag_id: UUID, user_id: UUID, *, include_inactive: bool = False
-    ) -> dict | None:
-        """タグを取得（API レスポンス用）"""
-        # 権限チェックを含む基本取得
-        tag = await self.get_tag(db, tag_id, user_id, include_inactive=include_inactive)
-        if not tag:
-            return None
-
-        # タスク数を含むレスポンス用データを取得
-        return await self.tag_repository.get_with_task_counts(db, tag_id, user_id)
+        return tag_dto
 
     async def get_tags(
         self,
@@ -65,56 +67,59 @@ class TagService:
         filters: TagFilters | None = None,
         sort_options: TagSortOptions | None = None,
         include_inactive: bool = False,
-    ) -> TagListResponse:
-        """タグ一覧を取得"""
-        # ページネーション計算
-        pagination_params = calculate_pagination(page, per_page)
+    ) -> TagListDTO:
+        """タグ一覧を取得
 
-        # タグ取得
-        tags = await self.tag_crud.get_multi_by_user(
+        Args:
+            db: データベースセッション
+            user_id: ユーザーID
+            page: ページ番号
+            per_page: 1ページあたりの件数
+            filters: フィルタ条件
+            sort_options: ソート条件
+            include_inactive: 非アクティブタグも含めるかどうか
+
+        Returns:
+            TagListDTO
+        """
+        # ページネーション計算
+        skip = (page - 1) * per_page
+
+        # リポジトリから取得
+        return await self.tag_repository.get_list(
             db,
             user_id,
-            skip=pagination_params.skip,
-            limit=pagination_params.limit,
+            skip=skip,
+            limit=per_page,
             filters=filters,
             sort_options=sort_options,
             include_inactive=include_inactive,
         )
 
-        # 総件数取得
-        total = await self.tag_crud.count_by_user(db, user_id, filters, include_inactive=include_inactive)
+    async def create_tag(self, db: AsyncSession, tag_in: TagCreate, user_id: UUID) -> TagDTO:
+        """タグを作成
 
-        # ページネーション結果作成
-        pagination_result = create_pagination_result(pagination_params.page, pagination_params.limit, total)
+        Args:
+            db: データベースセッション
+            tag_in: タグ作成データ
+            user_id: ユーザーID
 
-        return TagListResponse(
-            tags=[TagResponse.model_validate(tag) for tag in tags],
-            total=pagination_result.total,
-            page=pagination_result.page,
-            per_page=pagination_result.per_page,
-            total_pages=pagination_result.total_pages,
-        )
+        Returns:
+            作成されたTagDTO
 
-    async def create_tag(self, db: AsyncSession, tag_in: TagCreate, user_id: UUID) -> Tag:
-        """タグを作成（内部処理用）"""
-        try:
-            tag = await self.tag_crud.create_for_user(db, tag_in=tag_in, user_id=user_id)
-            return tag
-
-        except ValueError as e:
-            # 重複エラーを適切なメッセージに変換
-            if "既に使用されています" in str(e):
-                raise ValueError(ErrorMessages.TAG_NAME_DUPLICATE) from e
-            raise
-
-    async def create_tag_for_response(self, db: AsyncSession, tag_in: TagCreate, user_id: UUID) -> dict:
-        """タグを作成（API レスポンス用）"""
+        Raises:
+            ValueError: バリデーションエラーまたは重複エラー
+        """
         try:
             # タグ作成
             tag = await self.tag_crud.create_for_user(db, tag_in=tag_in, user_id=user_id)
 
-            # レスポンス用データを構築
-            return await self.tag_repository.create_with_response_data(tag)
+            # DTOで取得して返却
+            created_tag_dto = await self.tag_repository.get_by_id(db, tag.id, user_id)
+            if not created_tag_dto:
+                raise ValueError("タグの作成に失敗しました")
+
+            return created_tag_dto
 
         except ValueError as e:
             # 重複エラーを適切なメッセージに変換
@@ -122,16 +127,41 @@ class TagService:
                 raise ValueError(ErrorMessages.TAG_NAME_DUPLICATE) from e
             raise
 
-    async def update_tag(self, db: AsyncSession, tag_id: UUID, tag_in: TagUpdate, user_id: UUID) -> Tag:
-        """タグを更新（内部処理用）"""
+    async def update_tag(self, db: AsyncSession, tag_id: UUID, tag_in: TagUpdate, user_id: UUID) -> TagDTO:
+        """タグを更新
+
+        Args:
+            db: データベースセッション
+            tag_id: タグID
+            tag_in: タグ更新データ
+            user_id: ユーザーID
+
+        Returns:
+            更新されたTagDTO
+
+        Raises:
+            ValueError: タグが見つからない場合やバリデーションエラー
+            PermissionError: アクセス権限がない場合
+        """
         # タグ取得と権限チェック
-        tag = await self.get_tag(db, tag_id, user_id, include_inactive=True)
+        existing_tag_dto = await self.get_tag(db, tag_id, user_id, include_inactive=True)
+        if not existing_tag_dto:
+            raise ValueError(ErrorMessages.TAG_NOT_FOUND)
+
+        # CRUDレイヤーで更新処理（SQLAlchemyモデルが必要）
+        tag = await self.tag_crud.get_by_user(db, user_id, tag_id, include_inactive=True)
         if not tag:
             raise ValueError(ErrorMessages.TAG_NOT_FOUND)
 
         try:
-            updated_tag = await self.tag_crud.update_for_user(db, db_tag=tag, tag_in=tag_in)
-            return updated_tag
+            await self.tag_crud.update_for_user(db, db_tag=tag, tag_in=tag_in)
+
+            # 更新後のDTOを取得して返却
+            updated_tag_dto = await self.tag_repository.get_by_id(db, tag_id, user_id)
+            if not updated_tag_dto:
+                raise ValueError("タグの更新に失敗しました")
+
+            return updated_tag_dto
 
         except ValueError as e:
             # 重複エラーを適切なメッセージに変換
@@ -139,28 +169,37 @@ class TagService:
                 raise ValueError(ErrorMessages.TAG_NAME_DUPLICATE) from e
             raise
 
-    async def update_tag_for_response(self, db: AsyncSession, tag_id: UUID, tag_in: TagUpdate, user_id: UUID) -> dict:
-        """タグを更新（API レスポンス用）"""
-        # タグ更新
-        await self.update_tag(db, tag_id, tag_in, user_id)
-
-        # レスポンス用データを取得
-        tag_data = await self.tag_repository.get_with_task_counts(db, tag_id, user_id)
-        if tag_data is None:
-            raise ValueError(ErrorMessages.TAG_NOT_FOUND)
-
-        return tag_data
-
     async def delete_tag(self, db: AsyncSession, tag_id: UUID, user_id: UUID, *, force_delete: bool = False) -> bool:
-        """タグを削除"""
+        """タグを削除
+
+        Args:
+            db: データベースセッション
+            tag_id: タグID
+            user_id: ユーザーID
+            force_delete: 物理削除フラグ
+
+        Returns:
+            削除成功フラグ
+
+        Raises:
+            ValueError: タグが見つからない場合や削除できない場合
+            PermissionError: アクセス権限がない場合
+        """
         # タグ取得と権限チェック
-        tag = await self.get_tag(db, tag_id, user_id, include_inactive=True)
-        if not tag:
+        tag_dto = await self.get_tag(db, tag_id, user_id, include_inactive=True)
+        if not tag_dto:
             raise ValueError(ErrorMessages.TAG_NOT_FOUND)
 
         # 関連タスクの確認
-        if not force_delete and tag.task_count > 0:
-            raise ValueError(f"タグ「{tag.name}」は{tag.task_count}個のタスクで使用されているため削除できません")
+        if not force_delete and tag_dto.task_count > 0:
+            raise ValueError(
+                f"タグ「{tag_dto.name}」は{tag_dto.task_count}個のタスクで使用されているため削除できません"
+            )
+
+        # CRUDレイヤーで削除処理（SQLAlchemyモデルが必要）
+        tag = await self.tag_crud.get_by_user(db, user_id, tag_id, include_inactive=True)
+        if not tag:
+            raise ValueError(ErrorMessages.TAG_NOT_FOUND)
 
         if force_delete:
             # 物理削除
@@ -172,4 +211,5 @@ class TagService:
             return True
 
 
+# シングルトンインスタンス
 tag_service = TagService()

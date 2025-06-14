@@ -15,8 +15,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.constants import APIConstants, ErrorMessages, TaskPriority, TaskStatus
 from app.core.database import get_db
 from app.core.security import get_current_user
+from app.dtos.task import TaskDTO, TaskListDTO
 from app.models.user import User
 from app.schemas.task import (
+    TagInfo,
     TaskCreate,
     TaskFilters,
     TaskListResponse,
@@ -29,6 +31,48 @@ from app.schemas.task import (
 from app.services.task import task_service
 
 router = APIRouter()
+
+
+def _convert_task_dto_to_response(task_dto: TaskDTO) -> TaskResponse:
+    """TaskDTOをTaskResponseに変換"""
+    return TaskResponse(
+        id=task_dto.id,
+        user_id=task_dto.user_id,
+        title=task_dto.title,
+        description=task_dto.description,
+        status=TaskStatus(task_dto.status),
+        priority=TaskPriority(task_dto.priority),
+        due_date=task_dto.due_date,
+        completed_at=task_dto.completed_at,
+        position=task_dto.position,
+        tags=[
+            TagInfo(
+                id=tag.id,
+                name=tag.name,
+                color=tag.color,
+                description=tag.description,
+            )
+            for tag in task_dto.tags
+        ],
+        is_completed=task_dto.is_completed,
+        is_archived=task_dto.is_archived,
+        is_overdue=task_dto.is_overdue,
+        days_until_due=task_dto.days_until_due,
+        tag_names=task_dto.tag_names,
+        created_at=task_dto.created_at,
+        updated_at=task_dto.updated_at,
+    )
+
+
+def _convert_task_list_dto_to_response(task_list_dto: TaskListDTO) -> TaskListResponse:
+    """TaskListDTOをTaskListResponseに変換"""
+    return TaskListResponse(
+        tasks=[_convert_task_dto_to_response(task_dto) for task_dto in task_list_dto.tasks],
+        total=task_list_dto.total,
+        page=task_list_dto.page,
+        per_page=task_list_dto.per_page,
+        total_pages=task_list_dto.total_pages,
+    )
 
 
 @router.get("/", response_model=TaskListResponse)
@@ -70,11 +114,17 @@ async def get_tasks(
     sort_options = TaskSortOptions(sort_by=sort_by, order=order)
 
     try:
-        task_list = await task_service.get_tasks(
-            db, current_user.id, page=page, per_page=per_page, filters=filters, sort_options=sort_options
+        # サービス層からDTOを取得
+        task_list_dto = await task_service.get_tasks(
+            db,
+            current_user.id,
+            page=page,
+            per_page=per_page,
+            filters=filters,
+            sort_options=sort_options,
         )
 
-        return task_list
+        return _convert_task_list_dto_to_response(task_list_dto)
 
     except ValueError as e:
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
@@ -86,9 +136,10 @@ async def create_task(
 ) -> TaskResponse:
     """タスクを作成"""
     try:
-        task_data = await task_service.create_task_for_response(db, task_in, current_user.id)
+        # サービス層でタスク作成
+        task_dto = await task_service.create_task(db, task_in, current_user.id)
 
-        return TaskResponse(**task_data)
+        return _convert_task_dto_to_response(task_dto)
 
     except ValueError as e:
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
@@ -104,11 +155,12 @@ async def get_task(
 ) -> TaskResponse:
     """特定タスクを取得"""
     try:
-        task_data = await task_service.get_task_for_response(db, task_id, current_user.id)
-        if not task_data:
+        # サービス層からDTOを取得
+        task_dto = await task_service.get_task(db, task_id, current_user.id)
+        if not task_dto:
             raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail=ErrorMessages.TASK_NOT_FOUND)
 
-        return TaskResponse(**task_data)
+        return _convert_task_dto_to_response(task_dto)
 
     except PermissionError as e:
         raise HTTPException(status_code=http_status.HTTP_403_FORBIDDEN, detail=str(e)) from e
@@ -124,9 +176,10 @@ async def update_task(
 ) -> TaskResponse:
     """タスクを更新"""
     try:
-        task_data = await task_service.update_task_for_response(db, task_id, task_in, current_user.id)
+        # サービス層でタスク更新
+        task_dto = await task_service.update_task(db, task_id, task_in, current_user.id)
 
-        return TaskResponse(**task_data)
+        return _convert_task_dto_to_response(task_dto)
 
     except ValueError as e:
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
@@ -144,11 +197,10 @@ async def update_task_status(
 ) -> TaskResponse:
     """タスクステータスを更新"""
     try:
-        task_data = await task_service.update_task_status_for_response(
-            db, task_id, status_update.status, current_user.id
-        )
+        # サービス層でステータス更新
+        task_dto = await task_service.update_task_status(db, task_id, status_update.status, current_user.id)
 
-        return TaskResponse(**task_data)
+        return _convert_task_dto_to_response(task_dto)
 
     except ValueError as e:
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
@@ -187,7 +239,7 @@ async def reorder_tasks(
             raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail="タスクの並び順変更に失敗しました")
 
         # 成功時は更新後のタスク一覧を返す（フロントエンドでの同期用）
-        updated_tasks = await task_service.get_tasks(
+        updated_task_list_dto = await task_service.get_tasks(
             db,
             current_user.id,
             page=1,
@@ -198,8 +250,8 @@ async def reorder_tasks(
 
         return {
             "message": "タスクの並び順を変更しました",
-            "tasks": [task.model_dump() for task in updated_tasks.tasks],
-            "total": updated_tasks.total,
+            "tasks": [_convert_task_dto_to_response(task_dto).model_dump() for task_dto in updated_task_list_dto.tasks],
+            "total": updated_task_list_dto.total,
         }
 
     except ValueError as e:
@@ -221,11 +273,12 @@ async def get_tasks_by_status(
 ) -> list[TaskResponse]:
     """ステータス別でタスクを取得"""
     try:
-        task_dicts = await task_service.get_tasks_by_status_for_response(
+        # サービス層からDTOリストを取得
+        task_dtos = await task_service.get_tasks_by_status(
             db, current_user.id, task_status, page=page, per_page=per_page
         )
 
-        return [TaskResponse(**task_dict) for task_dict in task_dicts]
+        return [_convert_task_dto_to_response(task_dto) for task_dto in task_dtos]
 
     except ValueError as e:
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
@@ -243,11 +296,10 @@ async def get_overdue_tasks(
 ) -> list[TaskResponse]:
     """期限切れタスクを取得"""
     try:
-        task_dicts = await task_service.get_overdue_tasks_for_response(
-            db, current_user.id, page=page, per_page=per_page
-        )
+        # サービス層からDTOリストを取得
+        task_dtos = await task_service.get_overdue_tasks(db, current_user.id, page=page, per_page=per_page)
 
-        return [TaskResponse(**task_dict) for task_dict in task_dicts]
+        return [_convert_task_dto_to_response(task_dto) for task_dto in task_dtos]
 
     except ValueError as e:
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e)) from e

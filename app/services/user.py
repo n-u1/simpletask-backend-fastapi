@@ -1,73 +1,131 @@
 """ユーザーサービス層
 
-ユーザーのプロフィール管理のビジネスロジックを提供
+ユーザーのビジネスロジックを提供
 """
 
-from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.constants import ErrorMessages
 from app.crud.user import user_crud
+from app.dtos.user import UserDTO
+from app.repositories.user import user_repository
 from app.schemas.user import UserUpdate
-from app.utils.error_handler import handle_service_error
-from app.utils.permission import create_permission_checker
-
-# 循環インポート回避のための型チェック時
-if TYPE_CHECKING:
-    from app.models.user import User  # noqa: F401
 
 
 class UserService:
-    """ユーザーサービスクラス
+    """ユーザーサービス
 
-    認証以外のユーザー管理機能を提供
-    - プロフィール更新
-    - アカウント削除
+    ビジネスロジックのみに専念
+    データ変換はリポジトリ層で実施
     """
 
     def __init__(self) -> None:
         self.user_crud = user_crud
+        self.user_repository = user_repository
 
-    @handle_service_error("ユーザープロフィール取得")
-    async def get_user_profile(self, db: AsyncSession, user_id: UUID) -> "User | None":
-        """ユーザープロフィールを取得"""
-        user: User | None = await self.user_crud.get(db, id=user_id)
-        return user
+    async def get_user_profile(self, db: AsyncSession, user_id: UUID) -> UserDTO | None:
+        """ユーザープロフィールを取得
 
-    @handle_service_error("ユーザープロフィール更新")
-    async def update_user_profile(self, db: AsyncSession, user: "User", user_update: UserUpdate) -> "User":
-        """ユーザープロフィールを更新"""
-        permission_checker = create_permission_checker(user.id)
-        permission_checker.check_user_profile_access(user)
+        Args:
+            db: データベースセッション
+            user_id: ユーザーID
 
-        # 更新可能フィールドのみ抽出
-        update_data = user_update.model_dump(exclude_unset=True)
+        Returns:
+            UserDTO または None
+        """
+        return await self.user_repository.get_by_id(db, user_id)
 
-        # 特定フィールドのみ更新可能（セキュリティー対策）
-        allowed_fields = {"display_name", "avatar_url"}
-        filtered_data = {k: v for k, v in update_data.items() if k in allowed_fields}
+    async def update_user_profile(self, db: AsyncSession, user_id: UUID, user_update: UserUpdate) -> UserDTO:
+        """ユーザープロフィールを更新
 
-        if not filtered_data:
-            raise ValueError("更新するフィールドが指定されていません")
+        Args:
+            db: データベースセッション
+            user_id: ユーザーID
+            user_update: ユーザー更新データ
 
-        updated_user: User = await self.user_crud.update(db, db_obj=user, obj_in=filtered_data)
-        return updated_user
+        Returns:
+            更新されたUserDTO
 
-    @handle_service_error("ユーザーアカウント削除")
-    async def delete_user_account(self, db: AsyncSession, user: "User", *, permanent: bool = False) -> bool:
-        """ユーザーアカウントを削除"""
-        permission_checker = create_permission_checker(user.id)
-        permission_checker.check_user_profile_access(user)
+        Raises:
+            ValueError: ユーザーが見つからない場合やバリデーションエラー
+        """
+        # ユーザー取得
+        user_dto = await self.user_repository.get_by_id(db, user_id)
+        if not user_dto:
+            raise ValueError(ErrorMessages.USER_NOT_FOUND)
 
-        if permanent:
-            # 物理削除（関連データも削除される）
-            deleted_user: User | None = await self.user_crud.delete(db, id=user.id)
-            return deleted_user is not None
-        else:
-            # 論理削除（アカウント無効化）
-            deactivated_user: User = await self.user_crud.update(db, db_obj=user, obj_in={"is_active": False})
-            return deactivated_user is not None
+        # CRUDレイヤーで更新処理（SQLAlchemyモデルが必要）
+        user = await self.user_crud.get(db, id=user_id)
+        if not user:
+            raise ValueError(ErrorMessages.USER_NOT_FOUND)
+
+        try:
+            # 更新データの準備
+            update_data = user_update.model_dump(exclude_unset=True)
+
+            # SQLAlchemyモデルの更新
+            for field, value in update_data.items():
+                if hasattr(user, field):
+                    setattr(user, field, value)
+
+            await db.commit()
+            await db.refresh(user)
+
+            # 更新後のDTOを取得して返却
+            updated_user_dto = await self.user_repository.get_by_id(db, user_id)
+            if not updated_user_dto:
+                raise ValueError("ユーザープロフィールの更新に失敗しました")
+
+            return updated_user_dto
+
+        except ValueError as e:
+            await db.rollback()
+            raise ValueError(str(e)) from e
+        except Exception as e:
+            await db.rollback()
+            raise ValueError("ユーザープロフィールの更新に失敗しました") from e
+
+    async def delete_user_account(self, db: AsyncSession, user_id: UUID, *, permanent: bool = False) -> bool:
+        """ユーザーアカウントを削除
+
+        Args:
+            db: データベースセッション
+            user_id: ユーザーID
+            permanent: 物理削除フラグ
+
+        Returns:
+            削除成功フラグ
+
+        Raises:
+            ValueError: ユーザーが見つからない場合
+        """
+        # ユーザー取得
+        user_dto = await self.user_repository.get_by_id(db, user_id)
+        if not user_dto:
+            raise ValueError(ErrorMessages.USER_NOT_FOUND)
+
+        # CRUDレイヤーで削除処理
+        user = await self.user_crud.get(db, id=user_id)
+        if not user:
+            raise ValueError(ErrorMessages.USER_NOT_FOUND)
+
+        try:
+            if permanent:
+                # 物理削除
+                await self.user_crud.delete(db, id=user_id)
+            else:
+                # 論理削除（アカウント無効化）
+                user.is_active = False
+                await db.commit()
+
+            return True
+
+        except Exception as e:
+            await db.rollback()
+            raise ValueError("アカウント削除に失敗しました") from e
 
 
+# シングルトンインスタンス
 user_service = UserService()

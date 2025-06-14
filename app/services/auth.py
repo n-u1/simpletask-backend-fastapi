@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import security_manager
 from app.crud.user import user_crud
+from app.repositories.user import user_repository
 from app.schemas.auth import UserCreate
 from app.utils.error_handler import handle_service_error
 
@@ -20,9 +21,12 @@ if TYPE_CHECKING:
 class AuthService:
     @handle_service_error("ユーザー認証")
     async def authenticate_user(self, db: AsyncSession, email: str, password: str) -> "User | None":
-        """ユーザー認証"""
-        # メールアドレスでユーザー検索
-        user: User | None = await user_crud.get_by_email(db, email=email)
+        """ユーザー認証
+
+        注意: 認証時はパスワードハッシュが必要なため、SQLAlchemyモデルを返す
+        """
+        # 認証情報込みでユーザー検索（SQLAlchemyモデル）
+        user: User | None = await user_repository.get_with_auth_info(db, email)
         if not user:
             return None
 
@@ -39,9 +43,9 @@ class AuthService:
     @handle_service_error("ユーザー作成")
     async def create_user(self, db: AsyncSession, user_in: UserCreate) -> "User":
         """新規ユーザー作成"""
-        # メールアドレス重複チェック
-        existing_user: User | None = await user_crud.get_by_email(db, email=user_in.email)
-        if existing_user:
+        # メールアドレス重複チェック（DTOで確認）
+        existing_user_dto = await user_repository.get_by_email(db, email=user_in.email)
+        if existing_user_dto:
             raise ValueError("このメールアドレスは既に使用されています")
 
         # パスワードハッシュ化

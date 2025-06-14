@@ -1,16 +1,20 @@
 """ユーザーリポジトリ
 
 ユーザーデータアクセス層の抽象化
-CRUDOperationsをカプセル化し、ビジネスロジックから分離
 """
 
 import uuid
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.dtos.user import UserDTO, UserSummaryDTO
+
 if TYPE_CHECKING:
+    from app.models.user import User
+else:
     from app.models.user import User
 
 
@@ -18,116 +22,129 @@ class UserRepositoryInterface(ABC):
     """ユーザーリポジトリのインターフェース"""
 
     @abstractmethod
-    async def get_by_id(self, db: AsyncSession, user_id: uuid.UUID) -> Optional["User"]:
+    async def get_by_id(self, db: AsyncSession, user_id: uuid.UUID) -> UserDTO | None:
         """IDでユーザーを取得"""
         pass
 
     @abstractmethod
-    async def get_by_email(self, db: AsyncSession, email: str) -> Optional["User"]:
+    async def get_by_email(self, db: AsyncSession, email: str) -> UserDTO | None:
         """メールアドレスでユーザーを取得"""
         pass
 
     @abstractmethod
-    async def create(self, db: AsyncSession, email: str, password_hash: str, display_name: str) -> "User":
-        """ユーザーを作成"""
+    async def get_summary_by_id(self, db: AsyncSession, user_id: uuid.UUID) -> UserSummaryDTO | None:
+        """IDでユーザー要約情報を取得"""
+        pass
+
+    @abstractmethod
+    async def get_with_auth_info(self, db: AsyncSession, email: str) -> "User | None":
+        """認証情報込みでユーザーを取得（認証専用）"""
         pass
 
     @abstractmethod
     async def update_password(self, db: AsyncSession, user: "User", password_hash: str) -> "User":
-        """パスワードを更新"""
-        pass
-
-    @abstractmethod
-    async def update_last_login(self, db: AsyncSession, user: "User") -> "User":
-        """最終ログイン時刻を更新"""
+        """ユーザーのパスワードを更新"""
         pass
 
 
 class UserRepository(UserRepositoryInterface):
-    """ユーザーリポジトリの実装
+    """ユーザーリポジトリの実装"""
 
-    CRUD操作をカプセル化し、ドメインロジックに適した形でデータアクセスを提供
-    """
+    async def get_by_id(self, db: AsyncSession, user_id: uuid.UUID) -> UserDTO | None:
+        """IDでユーザーを取得"""
+        stmt = select(User).where(User.id == user_id)
+        result = await db.execute(stmt)
+        user = result.scalar_one_or_none()
 
-    async def get_by_id(self, db: AsyncSession, user_id: uuid.UUID) -> Optional["User"]:
-        """IDでユーザーを取得
+        if not user:
+            return None
 
-        Args:
-            db: データベースセッション
-            user_id: ユーザーID
-
-        Returns:
-            ユーザーインスタンスまたはNone
-        """
-        from app.crud.user import user_crud
-
-        return await user_crud.get(db, id=user_id)
-
-    async def get_by_email(self, db: AsyncSession, email: str) -> Optional["User"]:
-        """メールアドレスでユーザーを取得
-
-        Args:
-            db: データベースセッション
-            email: メールアドレス
-
-        Returns:
-            ユーザーインスタンスまたはNone
-        """
-        from app.crud.user import user_crud
-
-        return await user_crud.get_by_email(db, email=email)
-
-    async def create(self, db: AsyncSession, email: str, password_hash: str, display_name: str) -> "User":
-        """ユーザーを作成
-
-        Args:
-            db: データベースセッション
-            email: メールアドレス
-            password_hash: ハッシュ化済みパスワード
-            display_name: 表示名
-
-        Returns:
-            作成されたユーザーインスタンス
-        """
-        from app.crud.user import user_crud
-        from app.schemas.auth import UserCreate
-
-        user_create = UserCreate(
-            email=email,
-            password="dummy",  # nosec B106  # noqa: S106 # 実際のパスワードは別途ハッシュ化済み
-            display_name=display_name,
+        # DTOに変換（機密情報は除外）
+        return UserDTO(
+            id=user.id,
+            email=user.email,
+            display_name=user.display_name,
+            avatar_url=user.avatar_url,
+            is_active=user.is_active,
+            is_verified=user.is_verified,
+            last_login_at=user.last_login_at,
+            locked_until=user.locked_until,
+            created_at=user.created_at,
+            updated_at=user.updated_at,
         )
 
-        return await user_crud.create_user(db, obj_in=user_create, password_hash=password_hash)
+    async def get_by_email(self, db: AsyncSession, email: str) -> UserDTO | None:
+        """メールアドレスでユーザーを取得
 
-    async def update_password(self, db: AsyncSession, user: "User", password_hash: str) -> "User":
-        """パスワードを更新
+        認証時などで使用
+        """
+        stmt = select(User).where(User.email == email.lower().strip())
+        result = await db.execute(stmt)
+        user = result.scalar_one_or_none()
+
+        if not user:
+            return None
+
+        # DTOに変換（セッション内）
+        return UserDTO(
+            id=user.id,
+            email=user.email,
+            display_name=user.display_name,
+            avatar_url=user.avatar_url,
+            is_active=user.is_active,
+            is_verified=user.is_verified,
+            last_login_at=user.last_login_at,
+            locked_until=user.locked_until,
+            created_at=user.created_at,
+            updated_at=user.updated_at,
+        )
+
+    async def get_summary_by_id(self, db: AsyncSession, user_id: uuid.UUID) -> UserSummaryDTO | None:
+        """IDでユーザー要約情報を取得
+
+        他の機能でユーザー情報を参照する際に使用する軽量版
+        """
+        stmt = select(User.id, User.display_name, User.avatar_url).where(
+            User.id == user_id,
+            User.is_active == True,  # noqa: E712
+        )
+        result = await db.execute(stmt)
+        row = result.first()
+
+        if not row:
+            return None
+
+        return UserSummaryDTO(
+            id=row.id,
+            display_name=row.display_name,
+            avatar_url=row.avatar_url,
+        )
+
+    async def get_with_auth_info(self, db: AsyncSession, email: str) -> User | None:
+        """認証情報込みでユーザーを取得（認証専用）
+
+        認証時にパスワードハッシュなどが必要な場合のみ使用
+        SQLAlchemyモデルを直接返す（機密情報アクセスのため）
+        """
+        stmt = select(User).where(User.email == email.lower().strip())
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def update_password(self, db: AsyncSession, user: User, password_hash: str) -> User:
+        """ユーザーのパスワードを更新
 
         Args:
             db: データベースセッション
-            user: 更新対象のユーザー
+            user: 更新対象のユーザー（SQLAlchemyモデル）
             password_hash: 新しいハッシュ化済みパスワード
 
         Returns:
-            更新されたユーザーインスタンス
+            更新されたユーザー（SQLAlchemyモデル）
         """
-        from app.crud.user import user_crud
-
-        return await user_crud.update_password(db, user=user, password_hash=password_hash)
-
-    async def update_last_login(self, db: AsyncSession, user: "User") -> "User":
-        """最終ログイン時刻を更新
-
-        Args:
-            db: データベースセッション
-            user: 更新対象のユーザー
-
-        Returns:
-            更新されたユーザーインスタンス
-        """
-        from app.crud.user import user_crud
-
-        return await user_crud.update_last_login(db, user=user)
+        user.password_hash = password_hash
+        await db.commit()
+        await db.refresh(user)
+        return user
 
 
 # シングルトンインスタンス
