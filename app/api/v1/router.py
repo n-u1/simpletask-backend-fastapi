@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter
 
 from app.api.v1 import auth, tags, tasks, users
+from app.core.constants import ErrorMessages
 
 # メインのAPIルーター
 api_router = APIRouter()
@@ -18,10 +19,10 @@ api_router.include_router(
     prefix="/auth",
     tags=["認証"],
     responses={
-        401: {"description": "認証が必要です"},
-        403: {"description": "アクセスが拒否されました"},
-        422: {"description": "入力値に誤りがあります"},
-        429: {"description": "リクエスト制限を超過しました"},
+        401: {"description": ErrorMessages.UNAUTHORIZED},
+        403: {"description": ErrorMessages.FORBIDDEN},
+        422: {"description": ErrorMessages.VALIDATION_ERROR},
+        429: {"description": ErrorMessages.RATE_LIMIT_EXCEEDED},
     },
 )
 
@@ -32,9 +33,9 @@ api_router.include_router(
     tags=["ユーザー管理"],
     dependencies=[],  # 認証は各エンドポイントで個別に設定
     responses={
-        401: {"description": "認証が必要です"},
-        403: {"description": "アクセスが拒否されました"},
-        404: {"description": "ユーザーが見つかりません"},
+        401: {"description": ErrorMessages.UNAUTHORIZED},
+        403: {"description": ErrorMessages.FORBIDDEN},
+        404: {"description": ErrorMessages.USER_NOT_FOUND},
     },
 )
 
@@ -45,10 +46,10 @@ api_router.include_router(
     tags=["タスク管理"],
     dependencies=[],  # 認証は各エンドポイントで個別に設定
     responses={
-        400: {"description": "リクエストが不正です"},
-        401: {"description": "認証が必要です"},
-        403: {"description": "このタスクにアクセスする権限がありません"},
-        404: {"description": "タスクが見つかりません"},
+        400: {"description": ErrorMessages.BAD_REQUEST},
+        401: {"description": ErrorMessages.UNAUTHORIZED},
+        403: {"description": ErrorMessages.TASK_ACCESS_DENIED},
+        404: {"description": ErrorMessages.TASK_NOT_FOUND},
     },
 )
 
@@ -59,10 +60,10 @@ api_router.include_router(
     tags=["タグ管理"],
     dependencies=[],  # 認証は各エンドポイントで個別に設定
     responses={
-        400: {"description": "リクエストが不正です"},
-        401: {"description": "認証が必要です"},
-        403: {"description": "このタグにアクセスする権限がありません"},
-        404: {"description": "タグが見つかりません"},
+        400: {"description": ErrorMessages.BAD_REQUEST},
+        401: {"description": ErrorMessages.UNAUTHORIZED},
+        403: {"description": ErrorMessages.TAG_ACCESS_DENIED},
+        404: {"description": ErrorMessages.TAG_NOT_FOUND},
     },
 )
 

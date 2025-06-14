@@ -46,7 +46,7 @@ class TaskService:
 
         # アクセス権限チェック
         if task_dto.user_id != user_id:
-            raise PermissionError("このタスクにアクセスする権限がありません")
+            raise PermissionError(ErrorMessages.TASK_ACCESS_DENIED)
 
         return task_dto
 
@@ -225,7 +225,13 @@ class TaskService:
             raise ValueError(str(e)) from e
 
     async def get_tasks_by_status(
-        self, db: AsyncSession, user_id: UUID, status: TaskStatus, *, page: int = 1, per_page: int = 20
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+        status: TaskStatus,
+        *,
+        page: int = 1,
+        per_page: int = APIConstants.DEFAULT_PAGE_SIZE,
     ) -> list[TaskDTO]:
         """ステータス別でタスクを取得
 
@@ -248,7 +254,7 @@ class TaskService:
             raise ValueError(str(e)) from e
 
     async def get_overdue_tasks(
-        self, db: AsyncSession, user_id: UUID, *, page: int = 1, per_page: int = 20
+        self, db: AsyncSession, user_id: UUID, *, page: int = 1, per_page: int = APIConstants.DEFAULT_PAGE_SIZE
     ) -> list[TaskDTO]:
         """期限切れタスクを取得
 

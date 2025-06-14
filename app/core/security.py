@@ -21,6 +21,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.constants import ErrorMessages
 from app.core.database import get_db
 from app.core.redis import cache
 from app.utils.jwt_helpers import (
@@ -290,7 +291,7 @@ async def get_current_user(
     if not credentials:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="認証が必要です",
+            detail=ErrorMessages.UNAUTHORIZED,
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -324,7 +325,7 @@ async def get_current_user(
         if user_dto is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="ユーザーが見つかりません",
+                detail=ErrorMessages.USER_NOT_FOUND,
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
@@ -337,7 +338,7 @@ async def get_current_user(
         if user is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="ユーザーが見つかりません",
+                detail=ErrorMessages.USER_NOT_FOUND,
                 headers={"WWW-Authenticate": "Bearer"},
             )
 

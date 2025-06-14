@@ -11,6 +11,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.constants import ErrorMessages, SuccessMessages
 from app.core.database import get_db
 from app.core.dependencies import get_user_repository
 from app.core.redis import rate_limiter
@@ -64,7 +65,7 @@ async def apply_login_rate_limit(request: Request) -> None:
         rate_info = await rate_limiter.get_remaining(client_ip, settings.LOGIN_RATE_LIMIT_PER_MINUTE, "login")
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="ログイン試行回数が上限に達しました。しばらくお待ちください。",
+            detail=ErrorMessages.RATE_LIMIT_LOGIN_EXCEEDED,
             headers={
                 "X-RateLimit-Limit": str(settings.LOGIN_RATE_LIMIT_PER_MINUTE),
                 "X-RateLimit-Remaining": "0",
@@ -105,7 +106,7 @@ async def login(
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="メールアドレスまたはパスワードが正しくありません",
+            detail=ErrorMessages.INVALID_CREDENTIALS,
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -137,7 +138,7 @@ async def refresh_token(refresh_data: RefreshTokenRequest, db: AsyncSession = db
     if payload.get("type") != "refresh":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="無効なトークンタイプです",
+            detail=ErrorMessages.INVALID_TOKEN_TYPE,
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -148,7 +149,7 @@ async def refresh_token(refresh_data: RefreshTokenRequest, db: AsyncSession = db
     if user_id_raw is None or not isinstance(user_id_raw, str):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="無効なユーザーIDです",
+            detail=ErrorMessages.INVALID_USER_ID,
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -159,7 +160,7 @@ async def refresh_token(refresh_data: RefreshTokenRequest, db: AsyncSession = db
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="無効なユーザーID形式です",
+            detail=ErrorMessages.INVALID_USER_ID_FORMAT,
             headers={"WWW-Authenticate": "Bearer"},
         ) from None
 
@@ -169,7 +170,7 @@ async def refresh_token(refresh_data: RefreshTokenRequest, db: AsyncSession = db
     if not user or not user.can_login:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="無効なユーザーです",
+            detail=ErrorMessages.INVALID_USER,
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -208,7 +209,7 @@ async def change_password(
     if not security_manager.verify_password(password_change.current_password, current_user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="現在のパスワードが正しくありません",
+            detail=ErrorMessages.CURRENT_PASSWORD_INCORRECT,
         )
 
     # 新しいパスワードのハッシュ化
@@ -218,7 +219,7 @@ async def change_password(
     user_repository = get_user_repository()
     await user_repository.update_password(db, current_user, new_password_hash)
 
-    return AuthResponse(success=True, message="パスワードが正常に変更されました", data=None)
+    return AuthResponse(success=True, message=SuccessMessages.PASSWORD_CHANGED, data=None)
 
 
 @router.post("/logout", response_model=AuthResponse)
@@ -237,12 +238,12 @@ async def logout(
             token = auth_header.split(" ")[1]
             await security_manager.blacklist_token(token)
 
-        return AuthResponse(success=True, message="正常にログアウトしました", data=None)
+        return AuthResponse(success=True, message=SuccessMessages.LOGOUT_SUCCESS, data=None)
 
     except Exception as e:
         logger.error(f"ログアウトエラー: {e}")
         # ログアウトは失敗してもクライアント側でトークンを削除すれば実質的に成功
-        return AuthResponse(success=True, message="ログアウトしました", data=None)
+        return AuthResponse(success=True, message=SuccessMessages.LOGOUT_SUCCESS, data=None)
 
 
 @router.get("/me", response_model=UserResponse)

@@ -321,6 +321,11 @@ class ErrorMessages:
     USER_NOT_FOUND = "ユーザーが見つかりません"
     USER_INACTIVE = "アカウントが無効化されています"
     EMAIL_ALREADY_EXISTS = "このメールアドレスは既に登録されています"
+    RATE_LIMIT_LOGIN_EXCEEDED = "ログイン試行回数が上限に達しました。しばらくお待ちください。"
+    INVALID_TOKEN_TYPE = "無効なトークンタイプです"  # nosec B105 # noqa: S105
+    INVALID_USER_ID = "無効なユーザーIDです"
+    INVALID_USER_ID_FORMAT = "無効なユーザーID形式です"
+    INVALID_USER = "無効なユーザーです"
 
     # パスワード関連
     PASSWORD_TOO_SHORT = f"パスワードは{UserConstants.PASSWORD_MIN_LENGTH}文字以上である必要があります"  # nosec B105 # noqa: S105
@@ -328,6 +333,7 @@ class ErrorMessages:
     PASSWORD_NO_LETTERS = "パスワードには英字を含めてください"  # nosec B105 # noqa: S105
     PASSWORD_NO_NUMBERS = "パスワードには数字を含めてください"  # nosec B105 # noqa: S105
     PASSWORD_TOO_WEAK = "このパスワードは簡単すぎるため使用できません"  # nosec B105 # noqa: S105
+    CURRENT_PASSWORD_INCORRECT = "現在のパスワードが正しくありません"  # nosec B105 # noqa: S105
 
     # 表示名関連
     DISPLAY_NAME_TOO_SHORT = f"表示名は{UserConstants.DISPLAY_NAME_MIN_LENGTH}文字以上で入力してください"
@@ -365,6 +371,7 @@ class ErrorMessages:
 
     # 一般的なエラー
     VALIDATION_ERROR = "入力値に誤りがあります"
+    BAD_REQUEST = "リクエストが不正です"
     SERVER_ERROR = "サーバーエラーが発生しました"
     NOT_FOUND = "リソースが見つかりません"
     UNAUTHORIZED = "認証が必要です"

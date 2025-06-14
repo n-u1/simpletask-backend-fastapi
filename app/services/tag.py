@@ -53,7 +53,7 @@ class TagService:
 
         # アクセス権限チェック
         if tag_dto.user_id != user_id:
-            raise PermissionError("このタグにアクセスする権限がありません")
+            raise PermissionError(ErrorMessages.TAG_ACCESS_DENIED)
 
         return tag_dto
 
@@ -164,7 +164,6 @@ class TagService:
             return updated_tag_dto
 
         except ValueError as e:
-            # 重複エラーを適切なメッセージに変換
             if "既に使用されています" in str(e):
                 raise ValueError(ErrorMessages.TAG_NAME_DUPLICATE) from e
             raise
