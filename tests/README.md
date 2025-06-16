@@ -1,6 +1,6 @@
 # SimpleTask テストガイド
 
-SimpleTask アプリケーションのテスト実行方法とテスト構成について説明します。
+SimpleTask アプリケーションのテスト実行方法とテスト構成についてのガイドです。
 
 ## 🚀 クイックスタート
 
@@ -23,20 +23,39 @@ make test-cov
 | **タグ CRUD**    | `test_tags_crud.py`      | タグの作成・取得・更新・削除・アクセス制御       |
 | **データ整合性** | `test_data_integrity.py` | リレーション制約・必須フィールド・バリデーション |
 
-### フィクスチャ（conftest.py）
+### テスト設定構成
+
+```
+tests/
+├── conftest.py               # 基本フィクスチャとエントリーポイント
+├── test_config/
+│   ├── app_factory.py        # テストアプリケーション作成
+│   ├── database.py           # データベース設定
+│   ├── mocks.py              # モック設定（Redis等）
+│   └── schema_overrides.py   # テスト用スキーマ置き換え
+├── fixtures/
+│   ├── auth.py               # 認証関連フィクスチャ
+│   ├── entities.py           # エンティティフィクスチャ
+│   └── sample_data.py        # サンプルデータフィクスチャ
+└── [テストファイル群]
+```
+
+### フィクスチャ構成
 
 ```python
-# 基本フィクスチャ
+# 基本フィクスチャ（tests/conftest.py）
 db_session      # テスト用データベースセッション
 async_client    # 非同期HTTPクライアント
 
-# テストデータ
+# 認証フィクスチャ（tests/fixtures/auth.py）
+auth_headers    # 認証済みヘッダー
+
+# エンティティフィクスチャ（tests/fixtures/entities.py）
 test_user       # テスト用ユーザー
 test_task       # テスト用タスク
 test_tag        # テスト用タグ
-auth_headers    # 認証済みヘッダー
 
-# サンプルデータ
+# サンプルデータ（tests/fixtures/sample_data.py）
 sample_user_data, sample_task_data, sample_tag_data
 ```
 
@@ -85,9 +104,15 @@ pytest --cov=app --cov-report=term-missing  # カバレッジ表示
 
 ### スキーマ
 
-- テスト用の簡素化スキーマを使用
-- 本番の複雑なプロパティを除外
-- Greenlet 問題を回避
+- テスト用の動的スキーマ置き換えを使用（`tests/test_config/schema_overrides.py`）
+- 本番の複雑なプロパティを簡素化
+- 型安全性を保ちながらテスト環境に最適化
+
+### モック
+
+- Redis 接続のモック化（`tests/test_config/mocks.py`）
+- レート制限機能のモック化
+- 外部依存関係の除去
 
 ## 📋 テスト項目
 
@@ -120,7 +145,3 @@ pytest --cov=app --cov-report=term-missing  # カバレッジ表示
 - ✅ CRUD 操作: 完全テスト済み
 - ✅ データ整合性: 完全テスト済み
 - ✅ 主要パスカバレッジ: 確保済み
-
-**開発準備完了：**
-
-- 核となる機能の品質保証が完了
