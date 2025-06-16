@@ -5,24 +5,24 @@
 
 import uuid
 from abc import ABC, abstractmethod
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
 from app.core.constants import APIConstants
-from app.dtos.tag import TagDTO, TagListDTO, TagSummaryDTO
 from app.models.tag import Tag
 from app.models.task import Task
 from app.models.task_tag import TaskTag
-from app.schemas.tag import TagFilters, TagSortOptions
+from app.schemas.tag import TagFilters, TagListResponse, TagResponse, TagSortOptions, TagSummary
 
 
 class TagRepositoryInterface(ABC):
     """タグリポジトリのインターフェース"""
 
     @abstractmethod
-    async def get_by_id(self, db: AsyncSession, tag_id: uuid.UUID, user_id: uuid.UUID) -> TagDTO | None:
+    async def get_by_id(self, db: AsyncSession, tag_id: uuid.UUID, user_id: uuid.UUID) -> TagResponse | None:
         """IDでタグを取得"""
         pass
 
@@ -37,14 +37,14 @@ class TagRepositoryInterface(ABC):
         filters: TagFilters | None = None,
         sort_options: TagSortOptions | None = None,
         include_inactive: bool = False,
-    ) -> TagListDTO:
+    ) -> TagListResponse:
         """ユーザーのタグ一覧を取得"""
         pass
 
     @abstractmethod
     async def get_summary_by_ids(
         self, db: AsyncSession, tag_ids: list[uuid.UUID], user_id: uuid.UUID
-    ) -> list[TagSummaryDTO]:
+    ) -> list[TagSummary]:
         """指定IDのタグ要約情報を取得"""
         pass
 
@@ -52,7 +52,7 @@ class TagRepositoryInterface(ABC):
 class TagRepository(TagRepositoryInterface):
     """タグリポジトリの実装"""
 
-    async def get_by_id(self, db: AsyncSession, tag_id: uuid.UUID, user_id: uuid.UUID) -> TagDTO | None:
+    async def get_by_id(self, db: AsyncSession, tag_id: uuid.UUID, user_id: uuid.UUID) -> TagResponse | None:
         """IDでタグを取得"""
         # タグの基本情報を取得
         stmt = select(Tag).where(Tag.id == tag_id, Tag.user_id == user_id)
@@ -65,20 +65,22 @@ class TagRepository(TagRepositoryInterface):
         # タスク数の集計をSQLで実行
         task_counts = await self._get_task_counts_for_tag(db, tag_id)
 
-        # DTOに変換（セッション内）
-        return TagDTO(
-            id=tag.id,
-            user_id=tag.user_id,
-            name=tag.name,
-            color=tag.color,
-            description=tag.description,
-            is_active=tag.is_active,
-            created_at=tag.created_at,
-            updated_at=tag.updated_at,
-            task_count=task_counts["total"],
-            active_task_count=task_counts["active"],
-            completed_task_count=task_counts["completed"],
-        )
+        # Pydanticレスポンスモデルに変換（セッション内）
+        tag_data: dict[str, Any] = {
+            "id": tag.id,
+            "user_id": tag.user_id,
+            "name": tag.name,
+            "color": tag.color,
+            "description": tag.description,
+            "is_active": tag.is_active,
+            "created_at": tag.created_at,
+            "updated_at": tag.updated_at,
+            "task_count": task_counts["total"],
+            "active_task_count": task_counts["active"],
+            "completed_task_count": task_counts["completed"],
+        }
+
+        return TagResponse.model_validate(tag_data)
 
     async def get_list(
         self,
@@ -90,7 +92,7 @@ class TagRepository(TagRepositoryInterface):
         filters: TagFilters | None = None,
         sort_options: TagSortOptions | None = None,
         include_inactive: bool = False,
-    ) -> TagListDTO:
+    ) -> TagListResponse:
         """ユーザーのタグ一覧を取得
 
         パフォーマンスを考慮してバッチ処理で実装
@@ -122,7 +124,7 @@ class TagRepository(TagRepositoryInterface):
         tags = list(result.scalars().all())
 
         if not tags:
-            return TagListDTO(
+            return TagListResponse(
                 tags=[],
                 total=0,
                 page=(skip // limit) + 1,
@@ -134,31 +136,31 @@ class TagRepository(TagRepositoryInterface):
         tag_ids = [tag.id for tag in tags]
         task_counts_map = await self._get_task_counts_for_tags(db, tag_ids)
 
-        # DTOに変換
-        tag_dtos = []
+        # Pydanticレスポンスモデルに変換
+        tag_responses = []
         for tag in tags:
             counts = task_counts_map.get(tag.id, {"total": 0, "active": 0, "completed": 0})
-            tag_dto = TagDTO(
-                id=tag.id,
-                user_id=tag.user_id,
-                name=tag.name,
-                color=tag.color,
-                description=tag.description,
-                is_active=tag.is_active,
-                created_at=tag.created_at,
-                updated_at=tag.updated_at,
-                task_count=counts["total"],
-                active_task_count=counts["active"],
-                completed_task_count=counts["completed"],
-            )
-            tag_dtos.append(tag_dto)
+            tag_data: dict[str, Any] = {
+                "id": tag.id,
+                "user_id": tag.user_id,
+                "name": tag.name,
+                "color": tag.color,
+                "description": tag.description,
+                "is_active": tag.is_active,
+                "created_at": tag.created_at,
+                "updated_at": tag.updated_at,
+                "task_count": counts["total"],
+                "active_task_count": counts["active"],
+                "completed_task_count": counts["completed"],
+            }
+            tag_responses.append(TagResponse.model_validate(tag_data))
 
         # ページネーション情報計算
         page = (skip // limit) + 1
         total_pages = (total + limit - 1) // limit
 
-        return TagListDTO(
-            tags=tag_dtos,
+        return TagListResponse(
+            tags=tag_responses,
             total=total,
             page=page,
             per_page=limit,
@@ -167,10 +169,10 @@ class TagRepository(TagRepositoryInterface):
 
     async def get_summary_by_ids(
         self, db: AsyncSession, tag_ids: list[uuid.UUID], user_id: uuid.UUID
-    ) -> list[TagSummaryDTO]:
+    ) -> list[TagSummary]:
         """指定IDのタグ要約情報を取得
 
-        TaskDTOなどで使用する軽量なタグ情報
+        TaskResponseなどで使用する軽量なタグ情報
         """
         if not tag_ids:
             return []
@@ -185,7 +187,7 @@ class TagRepository(TagRepositoryInterface):
         tags = list(result.scalars().all())
 
         return [
-            TagSummaryDTO(
+            TagSummary(
                 id=tag.id,
                 name=tag.name,
                 color=tag.color,

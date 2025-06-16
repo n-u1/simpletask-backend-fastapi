@@ -320,9 +320,10 @@ async def get_current_user(
     try:
         from app.repositories.user import user_repository
 
-        user_dto = await user_repository.get_by_id(db, uuid.UUID(user_id))
+        # ユーザーの存在を確認
+        user_response = await user_repository.get_by_id(db, uuid.UUID(user_id))
 
-        if user_dto is None:
+        if user_response is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=ErrorMessages.USER_NOT_FOUND,

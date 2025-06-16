@@ -5,12 +5,12 @@
 
 import uuid
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dtos.user import UserDTO, UserSummaryDTO
+from app.schemas.user import UserResponse, UserSummary
 
 if TYPE_CHECKING:
     from app.models.user import User
@@ -22,17 +22,17 @@ class UserRepositoryInterface(ABC):
     """ユーザーリポジトリのインターフェース"""
 
     @abstractmethod
-    async def get_by_id(self, db: AsyncSession, user_id: uuid.UUID) -> UserDTO | None:
+    async def get_by_id(self, db: AsyncSession, user_id: uuid.UUID) -> UserResponse | None:
         """IDでユーザーを取得"""
         pass
 
     @abstractmethod
-    async def get_by_email(self, db: AsyncSession, email: str) -> UserDTO | None:
+    async def get_by_email(self, db: AsyncSession, email: str) -> UserResponse | None:
         """メールアドレスでユーザーを取得"""
         pass
 
     @abstractmethod
-    async def get_summary_by_id(self, db: AsyncSession, user_id: uuid.UUID) -> UserSummaryDTO | None:
+    async def get_summary_by_id(self, db: AsyncSession, user_id: uuid.UUID) -> UserSummary | None:
         """IDでユーザー要約情報を取得"""
         pass
 
@@ -50,7 +50,7 @@ class UserRepositoryInterface(ABC):
 class UserRepository(UserRepositoryInterface):
     """ユーザーリポジトリの実装"""
 
-    async def get_by_id(self, db: AsyncSession, user_id: uuid.UUID) -> UserDTO | None:
+    async def get_by_id(self, db: AsyncSession, user_id: uuid.UUID) -> UserResponse | None:
         """IDでユーザーを取得"""
         stmt = select(User).where(User.id == user_id)
         result = await db.execute(stmt)
@@ -59,21 +59,23 @@ class UserRepository(UserRepositoryInterface):
         if not user:
             return None
 
-        # DTOに変換（機密情報は除外）
-        return UserDTO(
-            id=user.id,
-            email=user.email,
-            display_name=user.display_name,
-            avatar_url=user.avatar_url,
-            is_active=user.is_active,
-            is_verified=user.is_verified,
-            last_login_at=user.last_login_at,
-            locked_until=user.locked_until,
-            created_at=user.created_at,
-            updated_at=user.updated_at,
-        )
+        # Pydanticレスポンスモデルに変換（機密情報は除外）
+        user_data: dict[str, Any] = {
+            "id": user.id,
+            "email": user.email,
+            "display_name": user.display_name,
+            "avatar_url": user.avatar_url,
+            "is_active": user.is_active,
+            "is_verified": user.is_verified,
+            "last_login_at": user.last_login_at,
+            "locked_until": user.locked_until,
+            "created_at": user.created_at,
+            "updated_at": user.updated_at,
+        }
 
-    async def get_by_email(self, db: AsyncSession, email: str) -> UserDTO | None:
+        return UserResponse.model_validate(user_data)
+
+    async def get_by_email(self, db: AsyncSession, email: str) -> UserResponse | None:
         """メールアドレスでユーザーを取得
 
         認証時などで使用
@@ -85,21 +87,23 @@ class UserRepository(UserRepositoryInterface):
         if not user:
             return None
 
-        # DTOに変換（セッション内）
-        return UserDTO(
-            id=user.id,
-            email=user.email,
-            display_name=user.display_name,
-            avatar_url=user.avatar_url,
-            is_active=user.is_active,
-            is_verified=user.is_verified,
-            last_login_at=user.last_login_at,
-            locked_until=user.locked_until,
-            created_at=user.created_at,
-            updated_at=user.updated_at,
-        )
+        # Pydanticレスポンスモデルに変換（セッション内）
+        user_data: dict[str, Any] = {
+            "id": user.id,
+            "email": user.email,
+            "display_name": user.display_name,
+            "avatar_url": user.avatar_url,
+            "is_active": user.is_active,
+            "is_verified": user.is_verified,
+            "last_login_at": user.last_login_at,
+            "locked_until": user.locked_until,
+            "created_at": user.created_at,
+            "updated_at": user.updated_at,
+        }
 
-    async def get_summary_by_id(self, db: AsyncSession, user_id: uuid.UUID) -> UserSummaryDTO | None:
+        return UserResponse.model_validate(user_data)
+
+    async def get_summary_by_id(self, db: AsyncSession, user_id: uuid.UUID) -> UserSummary | None:
         """IDでユーザー要約情報を取得
 
         他の機能でユーザー情報を参照する際に使用する軽量版
@@ -114,7 +118,7 @@ class UserRepository(UserRepositoryInterface):
         if not row:
             return None
 
-        return UserSummaryDTO(
+        return UserSummary(
             id=row.id,
             display_name=row.display_name,
             avatar_url=row.avatar_url,

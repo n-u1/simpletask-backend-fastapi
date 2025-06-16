@@ -19,11 +19,11 @@ from app.core.security import get_current_user, security_manager
 from app.models.user import User
 from app.schemas.auth import (
     AuthResponse,
+    AuthUserResponse,
     PasswordChangeRequest,
     RefreshTokenRequest,
     Token,
     UserCreate,
-    UserResponse,
 )
 from app.services.auth import auth_service
 from app.utils.error_handler import get_logger, handle_api_error
@@ -75,7 +75,7 @@ async def apply_login_rate_limit(request: Request) -> None:
         )
 
 
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/register", response_model=AuthUserResponse, status_code=status.HTTP_201_CREATED)
 @handle_api_error("ユーザー登録")
 async def register(user_in: UserCreate, db: AsyncSession = db_dependency) -> Any:
     """ユーザー登録
@@ -83,7 +83,7 @@ async def register(user_in: UserCreate, db: AsyncSession = db_dependency) -> Any
     新規ユーザーアカウントを作成
     """
     user = await auth_service.create_user(db, user_in)
-    return UserResponse.model_validate(user)
+    return AuthUserResponse.model_validate(user)
 
 
 @router.post("/login", response_model=Token)
@@ -120,7 +120,7 @@ async def login(
         token_type=TOKEN_TYPE_BEARER,
         expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         refresh_token=refresh_token,
-        user=UserResponse.model_validate(user),
+        user=AuthUserResponse.model_validate(user),
     )
 
 
@@ -165,9 +165,9 @@ async def refresh_token(refresh_data: RefreshTokenRequest, db: AsyncSession = db
         ) from None
 
     user_repository = get_user_repository()
-    user = await user_repository.get_by_id(db, user_id_uuid)
+    user_response = await user_repository.get_by_id(db, user_id_uuid)
 
-    if not user or not user.can_login:
+    if not user_response or not bool(user_response.can_login):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=ErrorMessages.INVALID_USER,
@@ -180,17 +180,17 @@ async def refresh_token(refresh_data: RefreshTokenRequest, db: AsyncSession = db
     # 新しいトークン生成
     access_token_expires = timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
     new_access_token = security_manager.create_access_token(
-        data={"sub": str(user.id)}, expires_delta=access_token_expires
+        data={"sub": str(user_response.id)}, expires_delta=access_token_expires
     )
 
-    new_refresh_token = security_manager.create_refresh_token(str(user.id))
+    new_refresh_token = security_manager.create_refresh_token(str(user_response.id))
 
     return Token(
         access_token=new_access_token,
         token_type=TOKEN_TYPE_BEARER,
         expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         refresh_token=new_refresh_token,
-        user=UserResponse.model_validate(user),
+        user=AuthUserResponse.model_validate(user_response),
     )
 
 
@@ -246,10 +246,7 @@ async def logout(
         return AuthResponse(success=True, message=SuccessMessages.LOGOUT_SUCCESS, data=None)
 
 
-@router.get("/me", response_model=UserResponse)
+@router.get("/me", response_model=AuthUserResponse)
 async def get_current_user_info(current_user: User = current_user_dependency) -> Any:
     """現在のユーザー情報取得"""
-    return UserResponse.model_validate(current_user)
-
-
-__all__ = ["router"]
+    return AuthUserResponse.model_validate(current_user)

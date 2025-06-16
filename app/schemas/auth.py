@@ -1,3 +1,8 @@
+"""認証関連のPydanticスキーマ
+
+ユーザー認証とアカウント管理のリクエスト・レスポンススキーマを提供
+"""
+
 import re
 from datetime import datetime
 from uuid import UUID
@@ -79,8 +84,11 @@ class UserLogin(BaseModel):
     )
 
 
-class UserResponse(BaseModel):
-    """ユーザー情報レスポンススキーマ（認証関連で使用）"""
+class AuthUserResponse(BaseModel):
+    """認証用ユーザー情報レスポンススキーマ（認証関連で使用）
+
+    注意: app.schemas.userのUserResponseと区別するため、AuthUserResponseとして定義
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -102,7 +110,7 @@ class Token(BaseModel):
     token_type: str = Field(default="bearer", description="トークンタイプ")
     expires_in: int = Field(..., description="有効期限（秒）")
     refresh_token: str | None = Field(None, description="リフレッシュトークン")
-    user: UserResponse = Field(..., description="ユーザー情報")
+    user: AuthUserResponse = Field(..., description="ユーザー情報")
 
 
 class TokenPayload(BaseModel):

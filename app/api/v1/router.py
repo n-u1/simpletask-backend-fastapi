@@ -7,7 +7,10 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, tags, tasks, users
+from app.api.v1.auth import router as auth_router
+from app.api.v1.tags import router as tags_router
+from app.api.v1.tasks import router as tasks_router
+from app.api.v1.users import router as users_router
 from app.core.constants import ErrorMessages
 
 # メインのAPIルーター
@@ -15,7 +18,7 @@ api_router = APIRouter()
 
 # 認証関連エンドポイント
 api_router.include_router(
-    auth.router,
+    auth_router,
     prefix="/auth",
     tags=["認証"],
     responses={
@@ -28,7 +31,7 @@ api_router.include_router(
 
 # ユーザー管理エンドポイント
 api_router.include_router(
-    users.router,
+    users_router,
     prefix="/users",
     tags=["ユーザー管理"],
     dependencies=[],  # 認証は各エンドポイントで個別に設定
@@ -41,7 +44,7 @@ api_router.include_router(
 
 # タスク管理エンドポイント
 api_router.include_router(
-    tasks.router,
+    tasks_router,
     prefix="/tasks",
     tags=["タスク管理"],
     dependencies=[],  # 認証は各エンドポイントで個別に設定
@@ -55,7 +58,7 @@ api_router.include_router(
 
 # タグ管理エンドポイント
 api_router.include_router(
-    tags.router,
+    tags_router,
     prefix="/tags",
     tags=["タグ管理"],
     dependencies=[],  # 認証は各エンドポイントで個別に設定

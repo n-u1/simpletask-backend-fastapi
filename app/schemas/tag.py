@@ -6,7 +6,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 from app.core.constants import ErrorMessages, TagConstants, validate_color_code
 
@@ -142,8 +142,25 @@ class TagUpdate(BaseModel):
         return v
 
 
+class TagSummary(BaseModel):
+    """タグ要約スキーマ（他のエンティティから参照される簡略版）
+
+    TaskResponseなどで使用する軽量なタグ情報
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID = Field(..., description="タグID")
+    name: str = Field(..., description="タグ名")
+    color: str = Field(..., description="タグ色")
+    description: str | None = Field(None, description="タグ説明")
+
+
 class TagResponse(TagBase):
-    """タグ応答スキーマ"""
+    """タグ応答スキーマ
+
+    タグの完全な情報を含むレスポンス
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -151,19 +168,34 @@ class TagResponse(TagBase):
     user_id: UUID = Field(..., description="所有者ID")
     is_active: bool = Field(..., description="アクティブフラグ")
 
-    # 計算プロパティ
+    # 集計値（リポジトリ層で計算して設定）
     task_count: int = Field(..., description="関連タスク数")
     active_task_count: int = Field(..., description="アクティブタスク数")
     completed_task_count: int = Field(..., description="完了済みタスク数")
-    color_rgb: tuple[int, int, int] = Field(..., description="RGB値")
-    is_preset_color: bool = Field(..., description="プリセット色フラグ")
 
     created_at: datetime = Field(..., description="作成日時")
     updated_at: datetime = Field(..., description="更新日時")
 
+    @computed_field
+    def color_rgb(self) -> tuple[int, int, int]:
+        """カラーコードをRGBタプルに変換"""
+        color = self.color.lstrip("#")
+        rgb_values = tuple(int(color[i : i + 2], 16) for i in (0, 2, 4))
+        return (rgb_values[0], rgb_values[1], rgb_values[2])
+
+    @computed_field
+    def is_preset_color(self) -> bool:
+        """プリセットカラーかどうか"""
+        from app.core.constants import TagConstants
+
+        return self.color in TagConstants.PRESET_COLORS
+
 
 class TagListResponse(BaseModel):
-    """タグ一覧応答スキーマ"""
+    """タグ一覧応答スキーマ
+
+    ページネーション情報とタグリストを含む
+    """
 
     tags: list[TagResponse] = Field(..., description="タグリスト")
     total: int = Field(..., description="総件数")

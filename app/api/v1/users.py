@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.constants import ErrorMessages
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.dtos.user import UserDTO
 from app.models.user import User
 from app.schemas.user import UserResponse, UserUpdate
 from app.services.user import user_service
@@ -21,41 +20,14 @@ from app.services.user import user_service
 router = APIRouter()
 
 
-def _convert_user_dto_to_response(user_dto: UserDTO) -> UserResponse:
-    """UserDTOをUserResponseに変換"""
-    return UserResponse(
-        id=user_dto.id,
-        email=user_dto.email,
-        display_name=user_dto.display_name,
-        avatar_url=user_dto.avatar_url,
-        is_active=user_dto.is_active,
-        is_verified=user_dto.is_verified,
-        created_at=user_dto.created_at,
-        updated_at=user_dto.updated_at,
-        last_login_at=user_dto.last_login_at,
-    )
-
-
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_profile(*, current_user: User = Depends(get_current_user)) -> UserResponse:
     """現在のユーザープロフィールを取得
 
-    注意: get_current_userから直接SQLAlchemyモデルを受け取るため、ここでDTOに変換する
+    注意: get_current_userから直接SQLAlchemyモデルを受け取るため、ここでPydanticレスポンスモデルに変換する
     """
-    # SQLAlchemyモデルからDTOに変換
-    user_dto = UserDTO(
-        id=current_user.id,
-        email=current_user.email,
-        display_name=current_user.display_name,
-        avatar_url=current_user.avatar_url,
-        is_active=current_user.is_active,
-        is_verified=current_user.is_verified,
-        last_login_at=current_user.last_login_at,
-        created_at=current_user.created_at,
-        updated_at=current_user.updated_at,
-    )
-
-    return _convert_user_dto_to_response(user_dto)
+    # SQLAlchemyモデルからPydanticレスポンスモデルに変換
+    return UserResponse.model_validate(current_user)
 
 
 @router.put("/me", response_model=UserResponse)
@@ -65,9 +37,9 @@ async def update_user_profile(
     """ユーザープロフィールを更新"""
     try:
         # サービス層でプロフィール更新
-        user_dto = await user_service.update_user_profile(db, current_user.id, user_update)
+        user_response = await user_service.update_user_profile(db, current_user.id, user_update)
 
-        return _convert_user_dto_to_response(user_dto)
+        return user_response
 
     except ValueError as e:
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e)) from e

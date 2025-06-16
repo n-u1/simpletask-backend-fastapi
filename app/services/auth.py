@@ -43,9 +43,9 @@ class AuthService:
     @handle_service_error("ユーザー作成")
     async def create_user(self, db: AsyncSession, user_in: UserCreate) -> "User":
         """新規ユーザー作成"""
-        # メールアドレス重複チェック（DTOで確認）
-        existing_user_dto = await user_repository.get_by_email(db, email=user_in.email)
-        if existing_user_dto:
+        # メールアドレス重複チェック
+        existing_user_response = await user_repository.get_by_email(db, email=user_in.email)
+        if existing_user_response:
             raise ValueError("このメールアドレスは既に使用されています")
 
         # パスワードハッシュ化

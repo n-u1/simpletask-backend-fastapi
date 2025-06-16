@@ -5,25 +5,25 @@
 
 import uuid
 from abc import ABC, abstractmethod
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
 from app.core.constants import APIConstants
-from app.dtos.tag import TagSummaryDTO
-from app.dtos.task import TaskDTO, TaskListDTO
 from app.models.tag import Tag
 from app.models.task import Task
 from app.models.task_tag import TaskTag
-from app.schemas.task import TaskFilters, TaskSortOptions
+from app.schemas.tag import TagSummary
+from app.schemas.task import TaskFilters, TaskListResponse, TaskResponse, TaskSortOptions
 
 
 class TaskRepositoryInterface(ABC):
     """タスクリポジトリのインターフェース"""
 
     @abstractmethod
-    async def get_by_id(self, db: AsyncSession, task_id: uuid.UUID, user_id: uuid.UUID) -> TaskDTO | None:
+    async def get_by_id(self, db: AsyncSession, task_id: uuid.UUID, user_id: uuid.UUID) -> TaskResponse | None:
         """IDでタスクを取得"""
         pass
 
@@ -37,7 +37,7 @@ class TaskRepositoryInterface(ABC):
         limit: int = APIConstants.DEFAULT_PAGE_SIZE,
         filters: TaskFilters | None = None,
         sort_options: TaskSortOptions | None = None,
-    ) -> TaskListDTO:
+    ) -> TaskListResponse:
         """ユーザーのタスク一覧を取得"""
         pass
 
@@ -50,7 +50,7 @@ class TaskRepositoryInterface(ABC):
         *,
         skip: int = 0,
         limit: int = APIConstants.DEFAULT_PAGE_SIZE,
-    ) -> list[TaskDTO]:
+    ) -> list[TaskResponse]:
         """ステータス別でタスクリストを取得"""
         pass
 
@@ -62,7 +62,7 @@ class TaskRepositoryInterface(ABC):
         *,
         skip: int = 0,
         limit: int = APIConstants.DEFAULT_PAGE_SIZE,
-    ) -> list[TaskDTO]:
+    ) -> list[TaskResponse]:
         """期限切れタスクリストを取得"""
         pass
 
@@ -70,7 +70,7 @@ class TaskRepositoryInterface(ABC):
 class TaskRepository(TaskRepositoryInterface):
     """タスクリポジトリの実装"""
 
-    async def get_by_id(self, db: AsyncSession, task_id: uuid.UUID, user_id: uuid.UUID) -> TaskDTO | None:
+    async def get_by_id(self, db: AsyncSession, task_id: uuid.UUID, user_id: uuid.UUID) -> TaskResponse | None:
         """IDでタスクを取得"""
         # タスクの基本情報を取得
         stmt = select(Task).where(Task.id == task_id, Task.user_id == user_id)
@@ -83,21 +83,23 @@ class TaskRepository(TaskRepositoryInterface):
         # タスクのタグ情報を取得
         tags = await self._get_tags_for_task(db, task_id)
 
-        # DTOに変換（セッション内）
-        return TaskDTO(
-            id=task.id,
-            user_id=task.user_id,
-            title=task.title,
-            description=task.description,
-            status=task.status,
-            priority=task.priority,
-            due_date=task.due_date,
-            completed_at=task.completed_at,
-            position=task.position,
-            created_at=task.created_at,
-            updated_at=task.updated_at,
-            tags=tags,
-        )
+        # Pydanticレスポンスモデルに変換（セッション内）
+        task_data: dict[str, Any] = {
+            "id": task.id,
+            "user_id": task.user_id,
+            "title": task.title,
+            "description": task.description,
+            "status": task.status,
+            "priority": task.priority,
+            "due_date": task.due_date,
+            "completed_at": task.completed_at,
+            "position": task.position,
+            "created_at": task.created_at,
+            "updated_at": task.updated_at,
+            "tags": tags,
+        }
+
+        return TaskResponse.model_validate(task_data)
 
     async def get_list(
         self,
@@ -108,7 +110,7 @@ class TaskRepository(TaskRepositoryInterface):
         limit: int = APIConstants.DEFAULT_PAGE_SIZE,
         filters: TaskFilters | None = None,
         sort_options: TaskSortOptions | None = None,
-    ) -> TaskListDTO:
+    ) -> TaskListResponse:
         """ユーザーのタスク一覧を取得
 
         パフォーマンスを考慮してバッチ処理で実装
@@ -136,7 +138,7 @@ class TaskRepository(TaskRepositoryInterface):
         tasks = list(result.scalars().all())
 
         if not tasks:
-            return TaskListDTO(
+            return TaskListResponse(
                 tasks=[],
                 total=0,
                 page=(skip // limit) + 1,
@@ -148,32 +150,32 @@ class TaskRepository(TaskRepositoryInterface):
         task_ids = [task.id for task in tasks]
         task_tags_map = await self._get_tags_for_tasks(db, task_ids)
 
-        # DTOに変換
-        task_dtos = []
+        # Pydanticレスポンスモデルに変換
+        task_responses = []
         for task in tasks:
             tags = task_tags_map.get(task.id, [])
-            task_dto = TaskDTO(
-                id=task.id,
-                user_id=task.user_id,
-                title=task.title,
-                description=task.description,
-                status=task.status,
-                priority=task.priority,
-                due_date=task.due_date,
-                completed_at=task.completed_at,
-                position=task.position,
-                created_at=task.created_at,
-                updated_at=task.updated_at,
-                tags=tags,
-            )
-            task_dtos.append(task_dto)
+            task_data: dict[str, Any] = {
+                "id": task.id,
+                "user_id": task.user_id,
+                "title": task.title,
+                "description": task.description,
+                "status": task.status,
+                "priority": task.priority,
+                "due_date": task.due_date,
+                "completed_at": task.completed_at,
+                "position": task.position,
+                "created_at": task.created_at,
+                "updated_at": task.updated_at,
+                "tags": tags,
+            }
+            task_responses.append(TaskResponse.model_validate(task_data))
 
         # ページネーション情報計算
         page = (skip // limit) + 1
         total_pages = (total + limit - 1) // limit
 
-        return TaskListDTO(
-            tasks=task_dtos,
+        return TaskListResponse(
+            tasks=task_responses,
             total=total,
             page=page,
             per_page=limit,
@@ -188,7 +190,7 @@ class TaskRepository(TaskRepositoryInterface):
         *,
         skip: int = 0,
         limit: int = APIConstants.DEFAULT_PAGE_SIZE,
-    ) -> list[TaskDTO]:
+    ) -> list[TaskResponse]:
         """ステータス別でタスクリストを取得"""
         stmt = (
             select(Task)
@@ -208,27 +210,27 @@ class TaskRepository(TaskRepositoryInterface):
         task_ids = [task.id for task in tasks]
         task_tags_map = await self._get_tags_for_tasks(db, task_ids)
 
-        # DTOに変換
-        task_dtos = []
+        # Pydanticレスポンスモデルに変換
+        task_responses = []
         for task in tasks:
             tags = task_tags_map.get(task.id, [])
-            task_dto = TaskDTO(
-                id=task.id,
-                user_id=task.user_id,
-                title=task.title,
-                description=task.description,
-                status=task.status,
-                priority=task.priority,
-                due_date=task.due_date,
-                completed_at=task.completed_at,
-                position=task.position,
-                created_at=task.created_at,
-                updated_at=task.updated_at,
-                tags=tags,
-            )
-            task_dtos.append(task_dto)
+            task_data: dict[str, Any] = {
+                "id": task.id,
+                "user_id": task.user_id,
+                "title": task.title,
+                "description": task.description,
+                "status": task.status,
+                "priority": task.priority,
+                "due_date": task.due_date,
+                "completed_at": task.completed_at,
+                "position": task.position,
+                "created_at": task.created_at,
+                "updated_at": task.updated_at,
+                "tags": tags,
+            }
+            task_responses.append(TaskResponse.model_validate(task_data))
 
-        return task_dtos
+        return task_responses
 
     async def get_overdue_list(
         self,
@@ -237,7 +239,7 @@ class TaskRepository(TaskRepositoryInterface):
         *,
         skip: int = 0,
         limit: int = APIConstants.DEFAULT_PAGE_SIZE,
-    ) -> list[TaskDTO]:
+    ) -> list[TaskResponse]:
         """期限切れタスクリストを取得"""
         from datetime import UTC, datetime
 
@@ -266,29 +268,29 @@ class TaskRepository(TaskRepositoryInterface):
         task_ids = [task.id for task in tasks]
         task_tags_map = await self._get_tags_for_tasks(db, task_ids)
 
-        # DTOに変換
-        task_dtos = []
+        # Pydanticレスポンスモデルに変換
+        task_responses = []
         for task in tasks:
             tags = task_tags_map.get(task.id, [])
-            task_dto = TaskDTO(
-                id=task.id,
-                user_id=task.user_id,
-                title=task.title,
-                description=task.description,
-                status=task.status,
-                priority=task.priority,
-                due_date=task.due_date,
-                completed_at=task.completed_at,
-                position=task.position,
-                created_at=task.created_at,
-                updated_at=task.updated_at,
-                tags=tags,
-            )
-            task_dtos.append(task_dto)
+            task_data: dict[str, Any] = {
+                "id": task.id,
+                "user_id": task.user_id,
+                "title": task.title,
+                "description": task.description,
+                "status": task.status,
+                "priority": task.priority,
+                "due_date": task.due_date,
+                "completed_at": task.completed_at,
+                "position": task.position,
+                "created_at": task.created_at,
+                "updated_at": task.updated_at,
+                "tags": tags,
+            }
+            task_responses.append(TaskResponse.model_validate(task_data))
 
-        return task_dtos
+        return task_responses
 
-    async def _get_tags_for_task(self, db: AsyncSession, task_id: uuid.UUID) -> list[TagSummaryDTO]:
+    async def _get_tags_for_task(self, db: AsyncSession, task_id: uuid.UUID) -> list[TagSummary]:
         """単一タスクのタグ情報を取得"""
         stmt = (
             select(Tag)
@@ -301,7 +303,7 @@ class TaskRepository(TaskRepositoryInterface):
         tags = list(result.scalars().all())
 
         return [
-            TagSummaryDTO(
+            TagSummary(
                 id=tag.id,
                 name=tag.name,
                 color=tag.color,
@@ -312,7 +314,7 @@ class TaskRepository(TaskRepositoryInterface):
 
     async def _get_tags_for_tasks(
         self, db: AsyncSession, task_ids: list[uuid.UUID]
-    ) -> dict[uuid.UUID, list[TagSummaryDTO]]:
+    ) -> dict[uuid.UUID, list[TagSummary]]:
         """複数タスクのタグ情報を効率的にバッチ取得"""
         if not task_ids:
             return {}
@@ -328,12 +330,12 @@ class TaskRepository(TaskRepositoryInterface):
         rows = result.all()
 
         # 結果をタスクIDでグループ化
-        task_tags_map: dict[uuid.UUID, list[TagSummaryDTO]] = {}
+        task_tags_map: dict[uuid.UUID, list[TagSummary]] = {}
         for task_id, tag in rows:
             if task_id not in task_tags_map:
                 task_tags_map[task_id] = []
 
-            tag_summary = TagSummaryDTO(
+            tag_summary = TagSummary(
                 id=tag.id,
                 name=tag.name,
                 color=tag.color,

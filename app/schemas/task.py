@@ -3,10 +3,10 @@
 タスクの作成、更新、応答のリクエスト・レスポンススキーマを提供
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 from app.core.constants import ErrorMessages, TaskConstants, TaskPriority, TaskStatus
 
@@ -98,7 +98,7 @@ class TaskCreate(TaskBase):
 
 
 class TaskUpdate(BaseModel):
-    """タスク更新リクエストスキーマ（部分更新対応）"""
+    """タスク更新リクエストスキーマ"""
 
     title: str | None = Field(
         None,
@@ -201,7 +201,10 @@ class TagInfo(BaseModel):
 
 
 class TaskResponse(TaskBase):
-    """タスク応答スキーマ"""
+    """タスク応答スキーマ
+
+    タスクの完全な情報を含むレスポンス
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -210,19 +213,46 @@ class TaskResponse(TaskBase):
     completed_at: datetime | None = Field(None, description="完了日時")
     tags: list[TagInfo] = Field(default_factory=list, description="関連タグ")
 
-    # 計算プロパティ
-    is_completed: bool = Field(..., description="完了済みフラグ")
-    is_archived: bool = Field(..., description="アーカイブ済みフラグ")
-    is_overdue: bool = Field(..., description="期限切れフラグ")
-    days_until_due: int | None = Field(None, description="期限までの日数")
-    tag_names: list[str] = Field(default_factory=list, description="タグ名リスト")
-
     created_at: datetime = Field(..., description="作成日時")
     updated_at: datetime = Field(..., description="更新日時")
 
+    @computed_field
+    def is_completed(self) -> bool:
+        """完了済みかどうか"""
+        return self.status == TaskStatus.DONE
+
+    @computed_field
+    def is_archived(self) -> bool:
+        """アーカイブ済みかどうか"""
+        return self.status == TaskStatus.ARCHIVED
+
+    @computed_field
+    def is_overdue(self) -> bool:
+        """期限切れかどうか（完了済みタスクは期限切れ扱いしない）"""
+        if not self.due_date or self.status == TaskStatus.DONE:
+            return False
+        return self.due_date < datetime.now(UTC)
+
+    @computed_field
+    def days_until_due(self) -> int | None:
+        """期限までの日数（期限なしの場合はNone、過ぎている場合は負の値）"""
+        if not self.due_date:
+            return None
+
+        delta = self.due_date.date() - datetime.now(UTC).date()
+        return delta.days
+
+    @computed_field
+    def tag_names(self) -> list[str]:
+        """関連するタグ名のリスト"""
+        return [tag.name for tag in self.tags]
+
 
 class TaskListResponse(BaseModel):
-    """タスク一覧応答スキーマ"""
+    """タスク一覧応答スキーマ
+
+    ページネーション情報とタスクリストを含む
+    """
 
     tasks: list[TaskResponse] = Field(..., description="タスクリスト")
     total: int = Field(..., description="総件数")

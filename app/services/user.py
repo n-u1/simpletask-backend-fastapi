@@ -9,9 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.constants import ErrorMessages
 from app.crud.user import user_crud
-from app.dtos.user import UserDTO
 from app.repositories.user import user_repository
-from app.schemas.user import UserUpdate
+from app.schemas.user import UserResponse, UserUpdate
 
 
 class UserService:
@@ -25,7 +24,7 @@ class UserService:
         self.user_crud = user_crud
         self.user_repository = user_repository
 
-    async def get_user_profile(self, db: AsyncSession, user_id: UUID) -> UserDTO | None:
+    async def get_user_profile(self, db: AsyncSession, user_id: UUID) -> UserResponse | None:
         """ユーザープロフィールを取得
 
         Args:
@@ -33,11 +32,11 @@ class UserService:
             user_id: ユーザーID
 
         Returns:
-            UserDTO または None
+            UserResponse または None
         """
         return await self.user_repository.get_by_id(db, user_id)
 
-    async def update_user_profile(self, db: AsyncSession, user_id: UUID, user_update: UserUpdate) -> UserDTO:
+    async def update_user_profile(self, db: AsyncSession, user_id: UUID, user_update: UserUpdate) -> UserResponse:
         """ユーザープロフィールを更新
 
         Args:
@@ -46,14 +45,14 @@ class UserService:
             user_update: ユーザー更新データ
 
         Returns:
-            更新されたUserDTO
+            更新されたUserResponse
 
         Raises:
             ValueError: ユーザーが見つからない場合やバリデーションエラー
         """
         # ユーザー取得
-        user_dto = await self.user_repository.get_by_id(db, user_id)
-        if not user_dto:
+        user_response = await self.user_repository.get_by_id(db, user_id)
+        if not user_response:
             raise ValueError(ErrorMessages.USER_NOT_FOUND)
 
         # CRUDレイヤーで更新処理（SQLAlchemyモデルが必要）
@@ -73,12 +72,12 @@ class UserService:
             await db.commit()
             await db.refresh(user)
 
-            # 更新後のDTOを取得して返却
-            updated_user_dto = await self.user_repository.get_by_id(db, user_id)
-            if not updated_user_dto:
+            # 更新後のPydanticレスポンスモデルを取得して返却
+            updated_user_response = await self.user_repository.get_by_id(db, user_id)
+            if not updated_user_response:
                 raise ValueError("ユーザープロフィールの更新に失敗しました")
 
-            return updated_user_dto
+            return updated_user_response
 
         except ValueError as e:
             await db.rollback()
@@ -102,8 +101,8 @@ class UserService:
             ValueError: ユーザーが見つからない場合
         """
         # ユーザー取得
-        user_dto = await self.user_repository.get_by_id(db, user_id)
-        if not user_dto:
+        user_response = await self.user_repository.get_by_id(db, user_id)
+        if not user_response:
             raise ValueError(ErrorMessages.USER_NOT_FOUND)
 
         # CRUDレイヤーで削除処理
